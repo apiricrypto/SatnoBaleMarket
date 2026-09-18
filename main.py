@@ -2,11 +2,11 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
-from .db import init_db, connect
-from .classifier import analyze, dumps
+from db import init_db, connect
+from classifier import analyze, dumps
 import json
 
-app = FastAPI(title="SATNO Bale Market Intelligence", version="0.1.0")
+app = FastAPI(title="SATNO Bale Market Intelligence", version="0.2.0")
 
 class MessageIn(BaseModel):
     external_id: Optional[str] = None
@@ -31,6 +31,10 @@ def save_message(m: MessageIn):
               dumps(a["quantities"]),dumps(a["phones"]),dumps(a["locations"])))
         return cur.lastrowid, a
 
+@app.get("/health")
+def health():
+    return {"status":"ok","service":"satno-bale-market","version":"0.2.0"}
+
 @app.post("/api/messages")
 def create_message(m: MessageIn):
     mid, a = save_message(m)
@@ -41,8 +45,8 @@ def list_messages(q: str = "", category: str = "", limit: int = Query(100, ge=1,
     sql = "SELECT * FROM messages WHERE 1=1"
     args=[]
     if q:
-        sql += " AND (text LIKE ? OR chat_name LIKE ? OR sender_name LIKE ? OR brands LIKE ?)"
-        like=f"%{q}%"; args += [like,like,like,like]
+        sql += " AND (text LIKE ? OR chat_name LIKE ? OR sender_name LIKE ? OR brands LIKE ? OR locations LIKE ?)"
+        like=f"%{q}%"; args += [like,like,like,like,like]
     if category:
         sql += " AND category=?"; args.append(category)
     sql += " ORDER BY COALESCE(sent_at, created_at) DESC LIMIT ?"; args.append(limit)
@@ -51,7 +55,7 @@ def list_messages(q: str = "", category: str = "", limit: int = Query(100, ge=1,
     for r in rows:
         for k in ["brands","power_values","price_values","quantities","phones","locations"]:
             try: r[k]=json.loads(r[k] or "[]")
-            except: r[k]=[]
+            except Exception: r[k]=[]
     return rows
 
 @app.get("/api/stats")
@@ -68,11 +72,13 @@ def dashboard():
 <title>SATNO Bale Market Intelligence</title>
 <style>
 body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1100px;margin:auto;padding:20px}
-h1{font-size:24px}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;background:white}
+h1{font-size:24px}.sub{color:#667085}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;background:white}
 input{flex:1;min-width:220px}button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 .meta{font-size:12px;color:#667085}.tag{display:inline-block;background:#eef3f8;border-radius:20px;padding:3px 8px;margin:3px;font-size:12px}
 </style></head><body><div class="wrap">
-<h1>SATNO | هوش بازار بله</h1><div id="stats" class="stats">در حال بارگذاری...</div>
+<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه MVP 0.2 — ساختار Flat مناسب GitHub موبایل</div>
+<div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar"><input id="q" placeholder="جستجو: برند، محصول، شهر، متن..."><select id="cat">
 <option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option>
 <option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option>
