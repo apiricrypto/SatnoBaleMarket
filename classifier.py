@@ -31,7 +31,7 @@ def analyze(text: str):
     power = uniq(re.findall(r'\b\d+(?:[.,]\d+)?\s*(?:kw|w|کیلووات|وات)\b', low, re.I))
     phones = uniq(re.findall(r'(?:\+98|0098|0)?9\d{9}', text))
     # Price-like values near تومان/ریال
-    prices = uniq([m[0].strip() for m in re.findall(r'((?:\d[\d,\. ]{2,})\s*(?:تومان|تومن|ریال))', text)])
+    prices = uniq([m.strip() for m in re.findall(r'((?:\d[\d,\. ]{2,})\s*(?:تومان|تومن|ریال))', text)])
     quantities = uniq(re.findall(r'\b\d+\s*(?:عدد|دستگاه|کارتن|پالت|پنل|باتری)\b', text))
     locations = uniq([x for x in LOCATIONS if x in text])
     return {
