@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 from db import init_db, connect
 from classifier import analyze, dumps
+from dedup import make_dedup_key
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.2.0")
@@ -21,15 +22,26 @@ def startup():
 
 def save_message(m: MessageIn):
     a = analyze(m.text)
+    dedup_key = make_dedup_key(
+        external_id=m.external_id,
+        chat_name=m.chat_name,
+        sender_name=m.sender_name,
+        sent_at=m.sent_at,
+        text=m.text,
+    )
     with connect() as con:
-        cur = con.execute('''
+        cur = con.execute("""
         INSERT OR IGNORE INTO messages
-        (external_id,chat_name,sender_name,text,sent_at,category,brands,power_values,price_values,quantities,phones,locations)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-        ''', (m.external_id,m.chat_name,m.sender_name,m.text,m.sent_at,a["category"],
-              dumps(a["brands"]),dumps(a["power_values"]),dumps(a["price_values"]),
-              dumps(a["quantities"]),dumps(a["phones"]),dumps(a["locations"])))
-        return cur.lastrowid, a
+        (external_id,chat_name,sender_name,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,quantities,phones,locations,dedup_key)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            m.external_id,m.chat_name,m.sender_name,m.text,m.sent_at,a["category"],
+            dumps(a["brands"]),dumps(a["product_types"]),dumps(a["models"]),
+            dumps(a["power_values"]),dumps(a["energy_values"]),dumps(a["price_values"]),
+            dumps(a["quantities"]),dumps(a["phones"]),dumps(a["locations"]),dedup_key
+        ))
+        inserted_id = cur.lastrowid if cur.rowcount == 1 else None
+        return inserted_id, a
 
 @app.get("/health")
 def health():
