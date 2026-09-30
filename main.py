@@ -5,6 +5,7 @@ from typing import Optional
 from db import init_db, connect
 from classifier import analyze, dumps
 from dedup import make_dedup_key
+from display_utils import format_tehran_jalali, normalize_datetime_filter
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.2.0")
@@ -64,6 +65,8 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
         sql += " AND category=?"; args.append(category)
     if sender_id:
         sql += " AND sender_id=?"; args.append(sender_id)
+    date_from = normalize_datetime_filter(date_from)
+    date_to = normalize_datetime_filter(date_to, end=True)
     if date_from:
         sql += " AND COALESCE(sent_at, created_at) >= ?"; args.append(date_from)
     if date_to:
@@ -75,6 +78,7 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
         for k in ["brands","product_types","models","power_values","energy_values","price_values","quantities","phones","locations"]:
             try: r[k]=json.loads(r[k] or "[]")
             except Exception: r[k]=[]
+        r["sent_at_display"] = format_tehran_jalali(r.get("sent_at") or r.get("created_at"))
     return rows
 
 @app.get("/api/stats")
@@ -96,7 +100,7 @@ input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;bac
 input{flex:1;min-width:220px}button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 .meta{font-size:12px;color:#667085}.tag{display:inline-block;background:#eef3f8;border-radius:20px;padding:3px 8px;margin:3px;font-size:12px}
 </style></head><body><div class="wrap">
-<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه MVP 0.2 — ساختار Flat مناسب GitHub موبایل</div>
+<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه آزمایشی 0.3 — جستجوی بازار، بازه زمانی و شناسه خریدار/فروشنده</div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar"><input id="q" placeholder="جستجو: برند، محصول، شهر، متن..."><select id="cat">
 <option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option>
@@ -109,9 +113,9 @@ async function load(){
  let q=encodeURIComponent(document.getElementById('q').value),c=encodeURIComponent(document.getElementById('cat').value),sid=encodeURIComponent(document.getElementById('sender').value),df=encodeURIComponent(document.getElementById('from').value),dt=encodeURIComponent(document.getElementById('to').value);
  let s=await (await fetch('/api/stats')).json(); document.getElementById('stats').innerText=`کل پیام‌ها: ${s.total}`;
  let rows=await (await fetch(`/api/messages?q=${q}&category=${c}&sender_id=${sid}&date_from=${df}&date_to=${dt}`)).json();
- document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${r.chat_name||'-'} • ${r.sender_name||'-'}${r.sender_id?' ('+escapeHtml(r.sender_id)+')':''} • ${r.sent_at||''}</div>
+ document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${escapeHtml(r.chat_name||'-')} • ${escapeHtml(r.sender_name||'-')}${r.sender_id?' • ID: '+escapeHtml(r.sender_id):''} • ${escapeHtml(r.sent_at_display||r.sent_at||'')}</div>
  <p>${escapeHtml(r.text)}</p><span class="tag">${labels[r.category]||r.category}</span>
- ${(r.brands||[]).map(x=>`<span class="tag">${x}</span>`).join('')} ${(r.locations||[]).map(x=>`<span class="tag">${x}</span>`).join('')}</div>`).join('');
+ ${(r.brands||[]).map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join('')} ${(r.models||[]).map(x=>`<span class="tag">مدل: ${escapeHtml(x)}</span>`).join('')} ${(r.power_values||[]).map(x=>`<span class="tag">توان: ${escapeHtml(x)}</span>`).join('')} ${(r.price_values||[]).map(x=>`<span class="tag">قیمت: ${escapeHtml(x)}</span>`).join('')} ${(r.locations||[]).map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join('')}</div>`).join('');
 }
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')load()}); load();
