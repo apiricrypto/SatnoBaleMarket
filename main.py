@@ -6,7 +6,8 @@ from db import init_db, connect
 from classifier import analyze, dumps
 from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
-from search_utils import query_terms
+from search_utils import normalize_search_text, query_terms
+from time_utils import parse_message_datetime
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.2.0")
@@ -70,15 +71,28 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
         sql += " AND category=?"; args.append(category)
     if sender_id:
         sql += " AND sender_id=?"; args.append(sender_id)
-    date_from = normalize_datetime_filter(date_from)
-    date_to = normalize_datetime_filter(date_to, end=True)
-    if date_from:
-        sql += " AND COALESCE(sent_at, created_at) >= ?"; args.append(date_from)
-    if date_to:
-        sql += " AND COALESCE(sent_at, created_at) <= ?"; args.append(date_to)
-    sql += " ORDER BY COALESCE(sent_at, created_at) DESC LIMIT ?"; args.append(limit)
+    normalized_from = normalize_datetime_filter(date_from)
+    normalized_to = normalize_datetime_filter(date_to, end=True)
+    # Historical Bale rows may contain legacy numeric/non-ISO timestamps.
+    # Fetch candidates first and apply date bounds in Python after normalizing each row.
+    sql += " ORDER BY id DESC"
     with connect() as con:
         rows=[dict(r) for r in con.execute(sql,args).fetchall()]
+    if normalized_from or normalized_to:
+        from_dt = parse_message_datetime(normalized_from) if normalized_from else None
+        to_dt = parse_message_datetime(normalized_to) if normalized_to else None
+        filtered=[]
+        for r in rows:
+            dt=parse_message_datetime(r.get("sent_at")) or parse_message_datetime(r.get("created_at"))
+            if not dt:
+                continue
+            if from_dt and dt < from_dt:
+                continue
+            if to_dt and dt > to_dt:
+                continue
+            filtered.append(r)
+        rows=filtered
+    rows=rows[:limit]
     for r in rows:
         for k in ["brands","product_types","models","power_values","energy_values","price_values","quantities","phones","locations"]:
             try: r[k]=json.loads(r[k] or "[]")
