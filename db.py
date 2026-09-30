@@ -70,6 +70,19 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(sent_at)")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_key ON messages(dedup_key) WHERE dedup_key IS NOT NULL")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS source_registry (
+          source_key TEXT PRIMARY KEY,
+          title TEXT,
+          peer_type TEXT,
+          peer_id TEXT,
+          score INTEGER DEFAULT 0,
+          matched_terms TEXT,
+          enabled INTEGER DEFAULT 1,
+          discovered_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_source_registry_enabled ON source_registry(enabled)")
+        con.execute('''
         CREATE TABLE IF NOT EXISTS sync_runs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           started_at TEXT NOT NULL,
