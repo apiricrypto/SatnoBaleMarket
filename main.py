@@ -92,33 +92,61 @@ def stats():
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
-    return HTMLResponse('''<!doctype html>
+    return HTMLResponse("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SATNO Bale Market Intelligence</title>
 <style>
-body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1100px;margin:auto;padding:20px}
-h1{font-size:24px}.sub{color:#667085}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
-input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;background:white}
-input{flex:1;min-width:220px}button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
+body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1200px;margin:auto;padding:20px}
+h1{font-size:24px}.sub{color:#667085}.bar{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto auto;gap:8px;margin:16px 0}
+input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;background:white;min-width:0}
+button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 .meta{font-size:12px;color:#667085}.tag{display:inline-block;background:#eef3f8;border-radius:20px;padding:3px 8px;margin:3px;font-size:12px}
+a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:-8px}
+@media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
-<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه آزمایشی 0.3 — جستجوی بازار، بازه زمانی و شناسه خریدار/فروشنده</div>
+<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه آزمایشی 0.3 — جستجوی بازار، تاریخ شمسی و شناسه خریدار/فروشنده</div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
-<div class="bar"><input id="q" placeholder="جستجو: برند، محصول، شهر، متن..."><select id="cat">
-<option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option>
-<option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option>
-<option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input id="sender" placeholder="ID خریدار/فروشنده"><input id="from" inputmode="numeric" placeholder="از تاریخ شمسی؛ مثال ۱۴۰۵/۰۷/۰۱"><input id="to" inputmode="numeric" placeholder="تا تاریخ شمسی؛ مثال ۱۴۰۵/۰۷/۰۸"><button onclick="load()">جستجو</button><button onclick="clearFilters()">پاک‌کردن فیلترها</button></div>
+<div class="bar">
+<input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
+<select id="cat"><option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option><option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select>
+<input id="sender" placeholder="ID خریدار/فروشنده">
+<input id="from" inputmode="numeric" placeholder="از: ۱۴۰۵/۰۷/۰۱">
+<input id="to" inputmode="numeric" placeholder="تا: ۱۴۰۵/۰۷/۰۸">
+<button id="searchBtn" type="button">جستجو</button>
+<button id="clearBtn" type="button">پاک‌کردن</button>
+</div>
+<div class="hint">تاریخ را به صورت شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۷/۰۸</div>
 <div id="list"></div></div>
 <script>
 const labels={supplier_seller:'فروشنده/تأمین‌کننده',buyer_demand:'خریدار/تقاضا',stock_availability:'موجودی',inquiry_project:'استعلام/پروژه',other:'سایر'};
-async function load(){
- let q=encodeURIComponent(document.getElementById('q').value),c=encodeURIComponent(document.getElementById('cat').value),sid=encodeURIComponent(document.getElementById('sender').value),df=encodeURIComponent(document.getElementById('from').value),dt=encodeURIComponent(document.getElementById('to').value);
- let s=await (await fetch('/api/stats')).json(); document.getElementById('stats').innerText=`کل پیام‌ها: ${s.total}`;
- let rows=await (await fetch(`/api/messages?q=${q}&category=${c}&sender_id=${sid}&date_from=${df}&date_to=${dt}`)).json();
- document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${escapeHtml(r.chat_name||'-')} • ${senderHtml(r)} • ${escapeHtml(r.sent_at_display||r.sent_at||'')}</div>
- <p>${escapeHtml(r.text)}</p><span class="tag">${labels[r.category]||r.category}</span>
- ${(r.brands||[]).map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join('')} ${(r.models||[]).map(x=>`<span class="tag">مدل: ${escapeHtml(x)}</span>`).join('')} ${(r.power_values||[]).map(x=>`<span class="tag">توان: ${escapeHtml(x)}</span>`).join('')} ${(r.price_values||[]).map(x=>`<span class="tag">قیمت: ${escapeHtml(x)}</span>`).join('')} ${(r.locations||[]).map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join('')}</div>`).join('');
+function escapeHtml(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+function senderHtml(r){
+ const label=escapeHtml(r.sender_username||r.sender_name||r.sender_id||'-');
+ if(r.sender_link && /^https:\/\/ble\.ir\/[A-Za-z0-9_.-]+\/?$/.test(r.sender_link)){
+   return '<a href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">بازکردن در بله: '+label+'</a>';
+ }
+ return label+(r.sender_id?' • ID: '+escapeHtml(r.sender_id):'');
 }
-function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
-document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')load()}); load();
-</script></body></html>''')
+function params(){
+ const p=new URLSearchParams();
+ const values={q:'q',category:'cat',sender_id:'sender',date_from:'from',date_to:'to'};
+ for(const [key,id] of Object.entries(values)){const v=document.getElementById(id).value.trim();if(v)p.set(key,v);}
+ return p;
+}
+async function load(){
+ const list=document.getElementById('list');
+ list.innerHTML='<div class="stats">در حال جستجو...</div>';
+ try{
+   const [sr,rr]=await Promise.all([fetch('/api/stats'),fetch('/api/messages?'+params().toString())]);
+   if(!sr.ok||!rr.ok) throw new Error('HTTP '+sr.status+'/'+rr.status);
+   const s=await sr.json(), rows=await rr.json();
+   document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج جستجو: '+rows.length;
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+'</div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
+ }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
+}
+function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');document.getElementById('cat').value='';load();}
+document.getElementById('searchBtn').addEventListener('click',load);
+document.getElementById('clearBtn').addEventListener('click',clearFilters);
+['q','sender','from','to'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')load();}));
+load();
+</script></body></html>""")
