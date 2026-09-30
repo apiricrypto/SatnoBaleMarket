@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 TEHRAN_OFFSET_SECONDS = 3 * 3600 + 30 * 60
@@ -15,9 +15,10 @@ def normalize_datetime_filter(value: str, *, end: bool = False) -> str:
         if year < 1700:
             year, month, day = jalali_to_gregorian(year, month, day)
         date_part = f"{year:04d}-{month:02d}-{day:02d}"
-        if time_part:
-            return date_part + "T" + time_part
-        return date_part + ("T23:59:59" if end else "T00:00:00")
+        clock = time_part or ("23:59:59" if end else "00:00:00")
+        local_dt = datetime.fromisoformat(date_part + "T" + clock)
+        utc_dt = local_dt - timedelta(seconds=TEHRAN_OFFSET_SECONDS)
+        return utc_dt.strftime("%Y-%m-%dT%H:%M:%S")
     return value
 
 def jalali_to_gregorian(jy: int, jm: int, jd: int):
@@ -54,7 +55,6 @@ def format_tehran_jalali(value: Optional[str]) -> str:
         raw = value.strip().replace("Z", "+00:00")
         dt = datetime.fromisoformat(raw)
         if dt.tzinfo is not None:
-            from datetime import timedelta
             dt = dt.astimezone(timezone(timedelta(seconds=TEHRAN_OFFSET_SECONDS)))
         gy, gm, gd = dt.year, dt.month, dt.day
         jy, jm, jd = gregorian_to_jalali(gy, gm, gd)
