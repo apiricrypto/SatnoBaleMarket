@@ -38,6 +38,7 @@ def init_db():
           external_id TEXT,
           chat_name TEXT,
           sender_name TEXT,
+          sender_id TEXT,
           text TEXT NOT NULL,
           sent_at TEXT,
           category TEXT,
@@ -54,12 +55,14 @@ def init_db():
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(external_id, chat_name)
         )''')
+        _ensure_column(con, "messages", "sender_id", "TEXT")
         _ensure_column(con, "messages", "product_types", "TEXT")
         _ensure_column(con, "messages", "models", "TEXT")
         _ensure_column(con, "messages", "energy_values", "TEXT")
         _ensure_column(con, "messages", "dedup_key", "TEXT")
         _backfill_dedup_keys(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(sent_at)")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_key ON messages(dedup_key) WHERE dedup_key IS NOT NULL")
         con.execute('''
