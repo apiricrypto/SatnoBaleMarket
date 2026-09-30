@@ -13,6 +13,7 @@ class MessageIn(BaseModel):
     external_id: Optional[str] = None
     chat_name: Optional[str] = None
     sender_name: Optional[str] = None
+    sender_id: Optional[str] = None
     text: str
     sent_at: Optional[str] = None
 
@@ -32,10 +33,10 @@ def save_message(m: MessageIn):
     with connect() as con:
         cur = con.execute("""
         INSERT OR IGNORE INTO messages
-        (external_id,chat_name,sender_name,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,quantities,phones,locations,dedup_key)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        (external_id,chat_name,sender_name,sender_id,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,quantities,phones,locations,dedup_key)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
-            m.external_id,m.chat_name,m.sender_name,m.text,m.sent_at,a["category"],
+            m.external_id,m.chat_name,m.sender_name,m.sender_id,m.text,m.sent_at,a["category"],
             dumps(a["brands"]),dumps(a["product_types"]),dumps(a["models"]),
             dumps(a["power_values"]),dumps(a["energy_values"]),dumps(a["price_values"]),
             dumps(a["quantities"]),dumps(a["phones"]),dumps(a["locations"]),dedup_key
@@ -53,7 +54,7 @@ def create_message(m: MessageIn):
     return {"id": mid, "analysis": a}
 
 @app.get("/api/messages")
-def list_messages(q: str = "", category: str = "", limit: int = Query(100, ge=1, le=500)):
+def list_messages(q: str = "", category: str = "", sender_id: str = "", date_from: str = "", date_to: str = "", limit: int = Query(100, ge=1, le=500)):
     sql = "SELECT * FROM messages WHERE 1=1"
     args=[]
     if q:
@@ -61,11 +62,17 @@ def list_messages(q: str = "", category: str = "", limit: int = Query(100, ge=1,
         like=f"%{q}%"; args += [like,like,like,like,like]
     if category:
         sql += " AND category=?"; args.append(category)
+    if sender_id:
+        sql += " AND sender_id=?"; args.append(sender_id)
+    if date_from:
+        sql += " AND COALESCE(sent_at, created_at) >= ?"; args.append(date_from)
+    if date_to:
+        sql += " AND COALESCE(sent_at, created_at) <= ?"; args.append(date_to)
     sql += " ORDER BY COALESCE(sent_at, created_at) DESC LIMIT ?"; args.append(limit)
     with connect() as con:
         rows=[dict(r) for r in con.execute(sql,args).fetchall()]
     for r in rows:
-        for k in ["brands","power_values","price_values","quantities","phones","locations"]:
+        for k in ["brands","product_types","models","power_values","energy_values","price_values","quantities","phones","locations"]:
             try: r[k]=json.loads(r[k] or "[]")
             except Exception: r[k]=[]
     return rows
@@ -94,15 +101,15 @@ input{flex:1;min-width:220px}button{cursor:pointer}.stats,.card{background:white
 <div class="bar"><input id="q" placeholder="جستجو: برند، محصول، شهر، متن..."><select id="cat">
 <option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option>
 <option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option>
-<option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><button onclick="load()">جستجو</button></div>
+<option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input id="sender" placeholder="ID خریدار/فروشنده"><input id="from" type="datetime-local" title="از تاریخ"><input id="to" type="datetime-local" title="تا تاریخ"><button onclick="load()">جستجو</button></div>
 <div id="list"></div></div>
 <script>
 const labels={supplier_seller:'فروشنده/تأمین‌کننده',buyer_demand:'خریدار/تقاضا',stock_availability:'موجودی',inquiry_project:'استعلام/پروژه',other:'سایر'};
 async function load(){
- let q=encodeURIComponent(document.getElementById('q').value),c=encodeURIComponent(document.getElementById('cat').value);
+ let q=encodeURIComponent(document.getElementById('q').value),c=encodeURIComponent(document.getElementById('cat').value),sid=encodeURIComponent(document.getElementById('sender').value),df=encodeURIComponent(document.getElementById('from').value),dt=encodeURIComponent(document.getElementById('to').value);
  let s=await (await fetch('/api/stats')).json(); document.getElementById('stats').innerText=`کل پیام‌ها: ${s.total}`;
- let rows=await (await fetch(`/api/messages?q=${q}&category=${c}`)).json();
- document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${r.chat_name||'-'} • ${r.sender_name||'-'} • ${r.sent_at||''}</div>
+ let rows=await (await fetch(`/api/messages?q=${q}&category=${c}&sender_id=${sid}&date_from=${df}&date_to=${dt}`)).json();
+ document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${r.chat_name||'-'} • ${r.sender_name||'-'}${r.sender_id?' ('+escapeHtml(r.sender_id)+')':''} • ${r.sent_at||''}</div>
  <p>${escapeHtml(r.text)}</p><span class="tag">${labels[r.category]||r.category}</span>
  ${(r.brands||[]).map(x=>`<span class="tag">${x}</span>`).join('')} ${(r.locations||[]).map(x=>`<span class="tag">${x}</span>`).join('')}</div>`).join('');
 }
