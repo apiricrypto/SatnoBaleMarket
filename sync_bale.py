@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from bale import BaleClient
 
 from main import MessageIn, save_message
+from db import connect, init_db
 from sync_state import get_checkpoint, save_checkpoint
 from time_utils import canonical_sent_at
 
@@ -23,8 +24,8 @@ KEYWORDS = [
     "تجهیزات",
 ]
 
-MAX_CHATS = 30
-MESSAGES_PER_CHAT = 50
+MAX_CHATS = int(os.getenv("BALE_MAX_CHATS", "500"))
+MESSAGES_PER_CHAT = int(os.getenv("BALE_MESSAGES_PER_CHAT", "200"))
 
 
 def get_text(message):
@@ -43,6 +44,11 @@ def get_source_key(peer):
 
 
 async def main():
+    init_db()
+    from datetime import datetime, timezone
+    started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with connect() as con:
+        run_id=con.execute("INSERT INTO sync_runs(started_at) VALUES (?)",(started_at,)).lastrowid
     token = os.getenv("BALE_TOKEN")
     if not token:
         raise SystemExit("BALE_TOKEN پیدا نشد.")
@@ -67,6 +73,7 @@ async def main():
 
         print(f"Solar chats found: {len(selected)}")
         print(f"Syncing first {min(MAX_CHATS, len(selected))} chats...")
+        chats_scanned = min(MAX_CHATS, len(selected))
 
         for dialog in selected[:MAX_CHATS]:
             title = getattr(dialog, "title", "") or ""
@@ -183,6 +190,10 @@ async def main():
     print("Text messages :", total_text)
     print("New saved     :", total_saved)
     print("Duplicates    :", total_duplicates)
+    finished_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with connect() as con:
+        con.execute("""UPDATE sync_runs SET finished_at=?,chats_scanned=?,messages_read=?,messages_saved=?,duplicates=?,status='ok' WHERE id=?""",
+                    (finished_at,chats_scanned,total_read,total_saved,total_duplicates,run_id))
 
 
 if __name__ == "__main__":
