@@ -94,6 +94,15 @@ def init_db():
           status TEXT DEFAULT 'running'
         )''')
         con.execute('''
+        CREATE TABLE IF NOT EXISTS backfill_state (
+          source_key TEXT PRIMARY KEY,
+          oldest_cursor TEXT,
+          messages_scanned INTEGER DEFAULT 0,
+          messages_saved INTEGER DEFAULT 0,
+          completed INTEGER DEFAULT 0,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )''')
+        con.execute('''
         CREATE TABLE IF NOT EXISTS sync_state (
           source_key TEXT PRIMARY KEY,
           cursor TEXT,
