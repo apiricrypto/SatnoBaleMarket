@@ -7,13 +7,13 @@ from dotenv import load_dotenv
 from bale import BaleClient
 
 from db import connect, init_db
-from source_discovery import score_source
+from source_discovery import qualifies_source
 
 load_dotenv(".env.local")
 
 DIALOG_LIMIT=int(os.getenv("BALE_DISCOVERY_DIALOG_LIMIT","500"))
 SAMPLE_MESSAGES=int(os.getenv("BALE_DISCOVERY_SAMPLE_MESSAGES","20"))
-THRESHOLD=int(os.getenv("BALE_DISCOVERY_THRESHOLD","4"))
+THRESHOLD=int(os.getenv("BALE_DISCOVERY_THRESHOLD","8"))
 
 def get_text(message):
     content=getattr(message,"content",None)
@@ -29,6 +29,7 @@ async def main():
         raise SystemExit("BALE_TOKEN پیدا نشد.")
     init_db()
     scanned=qualified=errors=0
+    seen_keys=set()
     now=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     async with BaleClient(token) as client:
         async for dialog in client.iter_dialogs(limit=DIALOG_LIMIT,page_size=50,resolve_names=True):
@@ -45,11 +46,12 @@ async def main():
                     if text: texts.append(text)
             except Exception:
                 errors+=1
-            score,matched=score_source(title,texts)
-            if score < THRESHOLD:
+            qualified,score,matched=qualifies_source(title,texts,THRESHOLD)
+            if not qualified:
                 continue
             qualified+=1
             key=source_key(peer)
+            seen_keys.add(key)
             with connect() as con:
                 con.execute("""INSERT INTO source_registry(source_key,title,peer_type,peer_id,score,matched_terms,enabled,discovered_at,last_seen_at)
                     VALUES(?,?,?,?,?,?,1,?,?)
@@ -57,6 +59,12 @@ async def main():
                     score=excluded.score,matched_terms=excluded.matched_terms,last_seen_at=excluded.last_seen_at""",
                     (key,title,str(getattr(peer,"type","unknown")),str(getattr(peer,"id","unknown")),score,json.dumps(matched,ensure_ascii=False),now,now))
             print(f"SOURCE score={score:02d} | {title}")
+    with connect() as con:
+        # Disable previously auto-discovered sources that no longer pass the stricter rules.
+        rows=con.execute("SELECT source_key FROM source_registry").fetchall()
+        for row in rows:
+            if row[0] not in seen_keys:
+                con.execute("UPDATE source_registry SET enabled=0 WHERE source_key=?",(row[0],))
     print("="*60)
     print("DISCOVERY COMPLETE")
     print("Dialogs scanned :",scanned)
