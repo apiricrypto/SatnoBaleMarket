@@ -124,6 +124,7 @@ async def main():
                     external_id=rid,
                     chat_name=title,
                     sender_name=str(getattr(message, "sender_id", "") or ""),
+                    sender_id=str(getattr(message, "sender_id", "") or ""),
                     text=text,
                     sent_at=str(getattr(message, "date", "") or ""),
                 )
