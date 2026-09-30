@@ -61,6 +61,8 @@ async def main():
 
     async with BaleClient(token) as client:
         selected = []
+        with connect() as con:
+            registry_keys={r[0] for r in con.execute("SELECT source_key FROM source_registry WHERE enabled=1").fetchall()}
 
         async for dialog in client.iter_dialogs(
             limit=500,
@@ -68,10 +70,12 @@ async def main():
             resolve_names=True,
         ):
             title = getattr(dialog, "title", "") or ""
-            if any(keyword.lower() in title.lower() for keyword in KEYWORDS):
+            peer = getattr(dialog, "peer", None)
+            key = get_source_key(peer) if peer is not None else ""
+            if key in registry_keys or any(keyword.lower() in title.lower() for keyword in KEYWORDS):
                 selected.append(dialog)
 
-        print(f"Solar chats found: {len(selected)}")
+        print(f"Market sources found: {len(selected)}")
         print(f"Syncing first {min(MAX_CHATS, len(selected))} chats...")
         chats_scanned = min(MAX_CHATS, len(selected))
 
