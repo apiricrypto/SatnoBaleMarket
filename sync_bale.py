@@ -50,6 +50,7 @@ async def main():
     total_text = 0
     total_saved = 0
     total_duplicates = 0
+    sender_cache = {}
 
     async with BaleClient(token) as client:
         selected = []
@@ -120,11 +121,30 @@ async def main():
                 total_text += 1
                 chat_text += 1
 
+                sender_id = str(getattr(message, "sender_id", "") or "")
+                sender_name = sender_id
+                sender_username = None
+                sender_link = None
+                if sender_id:
+                    if sender_id not in sender_cache:
+                        try:
+                            entity = await client.get_entity(sender_id)
+                            username = str(getattr(entity, "username", "") or "").lstrip("@")
+                            resolved_name = str(getattr(entity, "title", "") or "")
+                            sender_cache[sender_id] = (resolved_name or sender_id, username or None)
+                        except Exception:
+                            sender_cache[sender_id] = (sender_id, None)
+                    sender_name, sender_username = sender_cache[sender_id]
+                    if sender_username:
+                        sender_link = f"https://ble.ir/{sender_username}"
+
                 data = MessageIn(
                     external_id=rid,
                     chat_name=title,
-                    sender_name=str(getattr(message, "sender_id", "") or ""),
-                    sender_id=str(getattr(message, "sender_id", "") or ""),
+                    sender_name=sender_name,
+                    sender_id=sender_id,
+                    sender_username=sender_username,
+                    sender_link=sender_link,
                     text=text,
                     sent_at=str(getattr(message, "date", "") or ""),
                 )
