@@ -28,7 +28,7 @@ async def main():
     if not token:
         raise SystemExit("BALE_TOKEN پیدا نشد.")
     init_db()
-    scanned=qualified=errors=0
+    scanned=qualified_count=errors=0
     seen_keys=set()
     now=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     async with BaleClient(token) as client:
@@ -46,10 +46,10 @@ async def main():
                     if text: texts.append(text)
             except Exception:
                 errors+=1
-            qualified,score,matched=qualifies_source(title,texts,THRESHOLD)
-            if not qualified:
+            is_qualified,score,matched=qualifies_source(title,texts,THRESHOLD)
+            if not is_qualified:
                 continue
-            qualified+=1
+            qualified_count+=1
             key=source_key(peer)
             seen_keys.add(key)
             with connect() as con:
@@ -68,7 +68,7 @@ async def main():
     print("="*60)
     print("DISCOVERY COMPLETE")
     print("Dialogs scanned :",scanned)
-    print("Market sources  :",qualified)
+    print("Market sources  :",qualified_count)
     print("Read errors     :",errors)
 
 if __name__=="__main__":
