@@ -6,6 +6,7 @@ from db import init_db, connect
 from classifier import analyze, dumps
 from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
+from search_utils import query_terms
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.2.0")
@@ -61,8 +62,10 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     sql = "SELECT * FROM messages WHERE 1=1"
     args=[]
     if q:
-        sql += " AND (text LIKE ? OR chat_name LIKE ? OR sender_name LIKE ? OR brands LIKE ? OR locations LIKE ?)"
-        like=f"%{q}%"; args += [like,like,like,like,like]
+        searchable = "LOWER(COALESCE(text,'') || ' ' || COALESCE(chat_name,'') || ' ' || COALESCE(sender_name,'') || ' ' || COALESCE(sender_username,'') || ' ' || COALESCE(brands,'') || ' ' || COALESCE(product_types,'') || ' ' || COALESCE(models,'') || ' ' || COALESCE(power_values,'') || ' ' || COALESCE(energy_values,'') || ' ' || COALESCE(price_values,'') || ' ' || COALESCE(quantities,'') || ' ' || COALESCE(locations,''))"
+        for variants in query_terms(q):
+            sql += " AND (" + " OR ".join([searchable + " LIKE ?" for _ in variants]) + ")"
+            args.extend([f"%{v}%" for v in variants])
     if category:
         sql += " AND category=?"; args.append(category)
     if sender_id:
