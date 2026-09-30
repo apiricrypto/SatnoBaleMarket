@@ -70,7 +70,9 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     if category:
         sql += " AND category=?"; args.append(category)
     if sender_id:
-        sql += " AND sender_id=?"; args.append(sender_id)
+        sid = sender_id.strip().lstrip("@")
+        sql += " AND (sender_id LIKE ? OR LOWER(COALESCE(sender_username,'')) LIKE ? OR LOWER(COALESCE(sender_name,'')) LIKE ?)"
+        like_sid=f"%{sid}%"; args += [like_sid, like_sid.lower(), like_sid.lower()]
     normalized_from = normalize_datetime_filter(date_from)
     normalized_to = normalize_datetime_filter(date_to, end=True)
     # Historical Bale rows may contain legacy numeric/non-ISO timestamps.
@@ -98,6 +100,7 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
             try: r[k]=json.loads(r[k] or "[]")
             except Exception: r[k]=[]
         r["sent_at_display"] = format_tehran_jalali(r.get("sent_at") or r.get("created_at"))
+        r["sender_clickable"] = bool(r.get("sender_link"))
     return rows
 
 @app.get("/api/stats")
@@ -119,6 +122,7 @@ input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;bac
 button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 .meta{font-size:12px;color:#667085}.tag{display:inline-block;background:#eef3f8;border-radius:20px;padding:3px 8px;margin:3px;font-size:12px}
 a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:-8px}
+.datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه آزمایشی 0.3 — جستجوی بازار، تاریخ شمسی و شناسه خریدار/فروشنده</div>
@@ -127,13 +131,14 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 <input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
 <select id="cat"><option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option><option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select>
 <input id="sender" placeholder="ID خریدار/فروشنده">
-<input id="from" inputmode="numeric" placeholder="از: ۱۴۰۵/۰۷/۰۱">
-<input id="to" inputmode="numeric" placeholder="تا: ۱۴۰۵/۰۷/۰۸">
+<div class="datebox"><input id="from" inputmode="numeric" placeholder="از تاریخ"><button type="button" class="calBtn" data-target="from">📅</button></div>
+<div class="datebox"><input id="to" inputmode="numeric" placeholder="تا تاریخ"><button type="button" class="calBtn" data-target="to">📅</button></div>
 <button id="searchBtn" type="button">جستجو</button>
 <button id="clearBtn" type="button">پاک‌کردن</button>
 </div>
 <div class="hint">تاریخ را به صورت شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۷/۰۸</div>
 <div id="list"></div></div>
+<div id="picker" class="picker"><div class="pickerBox"><div class="pickerHead"><button id="nextMonth">◀</button><strong id="pickerTitle"></strong><button id="prevMonth">▶</button></div><div class="days" id="pickerDays"></div><button id="pickerClose" type="button">بستن</button></div></div>
 <script>
 const labels={supplier_seller:'فروشنده/تأمین‌کننده',buyer_demand:'خریدار/تقاضا',stock_availability:'موجودی',inquiry_project:'استعلام/پروژه',other:'سایر'};
 function escapeHtml(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
@@ -142,7 +147,8 @@ function senderHtml(r){
  if(r.sender_link && /^https:\/\/ble\.ir\/[A-Za-z0-9_.-]+\/?$/.test(r.sender_link)){
    return '<a href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">بازکردن در بله: '+label+'</a>';
  }
- return label+(r.sender_id?' • ID: '+escapeHtml(r.sender_id):'');
+ const id=r.sender_id?' • ID: '+escapeHtml(r.sender_id):'';
+ return label+id+' <span class="tag">لینک عمومی بله موجود نیست</span>';
 }
 function params(){
  const p=new URLSearchParams();
@@ -162,6 +168,26 @@ async function load(){
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');document.getElementById('cat').value='';load();}
+
+const jMonths=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+let pickerTarget=null,pickerY=1405,pickerM=7;
+function jMonthDays(y,m){if(m<=6)return 31;if(m<=11)return 30;return ((y+1)%4===0)?30:29;}
+function openPicker(target){
+ pickerTarget=target;
+ const v=document.getElementById(target).value.replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+ const p=v.split('/').map(Number); if(p.length===3&&p[0]){pickerY=p[0];pickerM=p[1];}
+ renderPicker();document.getElementById('picker').classList.add('show');
+}
+function renderPicker(){
+ document.getElementById('pickerTitle').textContent=jMonths[pickerM-1]+' '+pickerY;
+ const box=document.getElementById('pickerDays');box.innerHTML='';
+ for(let d=1;d<=jMonthDays(pickerY,pickerM);d++){const b=document.createElement('button');b.type='button';b.textContent=d;b.onclick=()=>{document.getElementById(pickerTarget).value=pickerY+'/'+String(pickerM).padStart(2,'0')+'/'+String(d).padStart(2,'0');document.getElementById('picker').classList.remove('show');};box.appendChild(b);}
+}
+document.querySelectorAll('.calBtn').forEach(b=>b.addEventListener('click',()=>openPicker(b.dataset.target)));
+document.getElementById('pickerClose').onclick=()=>document.getElementById('picker').classList.remove('show');
+document.getElementById('prevMonth').onclick=()=>{pickerM--;if(pickerM<1){pickerM=12;pickerY--;}renderPicker();};
+document.getElementById('nextMonth').onclick=()=>{pickerM++;if(pickerM>12){pickerM=1;pickerY++;}renderPicker();};
+
 document.getElementById('searchBtn').addEventListener('click',load);
 document.getElementById('clearBtn').addEventListener('click',clearFilters);
 ['q','sender','from','to'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')load();}));
