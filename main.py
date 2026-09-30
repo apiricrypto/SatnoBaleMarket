@@ -108,7 +108,8 @@ def stats():
     with connect() as con:
         total=con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         cats={r[0]:r[1] for r in con.execute("SELECT category,COUNT(*) FROM messages GROUP BY category")}
-    return {"total": total, "categories": cats}
+        last=con.execute("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1").fetchone()
+    return {"total": total, "categories": cats, "last_sync": dict(last) if last else None}
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
@@ -163,7 +164,8 @@ async function load(){
    const [sr,rr]=await Promise.all([fetch('/api/stats'),fetch('/api/messages?'+params().toString())]);
    if(!sr.ok||!rr.ok) throw new Error('HTTP '+sr.status+'/'+rr.status);
    const s=await sr.json(), rows=await rr.json();
-   document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج جستجو: '+rows.length;
+   const ls=s.last_sync; const syncText=ls?(' | آخرین Sync: '+(ls.finished_at||ls.started_at)+' | جدید: '+ls.messages_saved+' | چت‌ها: '+ls.chats_scanned):' | هنوز Sync ثبت نشده';
+   document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج جستجو: '+rows.length+syncText;
    list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+'</div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
