@@ -70,6 +70,17 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(sent_at)")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_key ON messages(dedup_key) WHERE dedup_key IS NOT NULL")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS sync_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          chats_scanned INTEGER DEFAULT 0,
+          messages_read INTEGER DEFAULT 0,
+          messages_saved INTEGER DEFAULT 0,
+          duplicates INTEGER DEFAULT 0,
+          status TEXT DEFAULT 'running'
+        )''')
+        con.execute('''
         CREATE TABLE IF NOT EXISTS sync_state (
           source_key TEXT PRIMARY KEY,
           cursor TEXT,
