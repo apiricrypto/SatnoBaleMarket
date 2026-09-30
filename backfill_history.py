@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from bale import BaleClient
 
-from backfill_engine import BATCH_SIZE, DEFAULT_PER_SOURCE, next_budget, oldest_rid
+from backfill_engine import BATCH_SIZE, DEFAULT_PER_SOURCE, next_budget, oldest_rid, should_complete
 from db import connect, init_db
 from main import MessageIn, save_message
 from time_utils import canonical_sent_at
@@ -50,6 +50,11 @@ async def main():
             saved=int(state["messages_saved"]) if state else 0
             cursor=state["oldest_cursor"] if state else None
             completed=bool(state["completed"]) if state else False
+            # Repair premature completion created by the first backfill implementation.
+            if completed and scanned < DEFAULT_PER_SOURCE:
+                completed=False
+                with connect() as con:
+                    con.execute("UPDATE backfill_state SET completed=0 WHERE source_key=?",(key,))
             budget=next_budget(scanned)
             if completed or budget<=0:
                 print("DONE:",title,"| scanned:",scanned,"saved:",saved); continue
@@ -92,7 +97,7 @@ async def main():
                 if mid is not None: batch_saved+=1
             new_cursor=oldest_rid(messages) or cursor
             new_scanned=scanned+len(messages); new_saved=saved+batch_saved
-            done=len(messages)<request or new_scanned>=DEFAULT_PER_SOURCE
+            done=should_complete(len(messages),request,new_scanned,DEFAULT_PER_SOURCE)
             with connect() as con:
                 con.execute("""INSERT INTO backfill_state(source_key,oldest_cursor,messages_scanned,messages_saved,completed,updated_at)
                     VALUES(?,?,?,?,?,CURRENT_TIMESTAMP)
