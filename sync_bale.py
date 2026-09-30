@@ -6,6 +6,7 @@ from bale import BaleClient
 
 from main import MessageIn, save_message
 from sync_state import get_checkpoint, save_checkpoint
+from time_utils import canonical_sent_at
 
 load_dotenv(".env.local")
 
@@ -146,7 +147,7 @@ async def main():
                     sender_username=sender_username,
                     sender_link=sender_link,
                     text=text,
-                    sent_at=str(getattr(message, "date", "") or ""),
+                    sent_at=canonical_sent_at(getattr(message, "date", "")),
                 )
 
                 mid, analysis = save_message(data)
