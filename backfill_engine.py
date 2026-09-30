@@ -6,8 +6,10 @@ BATCH_SIZE=int(os.getenv("BALE_BACKFILL_BATCH_SIZE","100"))
 def next_budget(scanned, limit=DEFAULT_PER_SOURCE):
     return max(0, limit-int(scanned or 0))
 
-def should_complete(batch_size, requested):
-    return batch_size < requested
+def should_complete(batch_size, requested, scanned, limit=DEFAULT_PER_SOURCE):
+    # A short page is not proof that Bale history is exhausted.
+    # Complete only after reaching the configured safety target.
+    return int(scanned or 0) >= int(limit)
 
 def oldest_rid(messages):
     for message in reversed(messages):
