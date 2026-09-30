@@ -15,6 +15,8 @@ class MessageIn(BaseModel):
     chat_name: Optional[str] = None
     sender_name: Optional[str] = None
     sender_id: Optional[str] = None
+    sender_username: Optional[str] = None
+    sender_link: Optional[str] = None
     text: str
     sent_at: Optional[str] = None
 
@@ -34,10 +36,10 @@ def save_message(m: MessageIn):
     with connect() as con:
         cur = con.execute("""
         INSERT OR IGNORE INTO messages
-        (external_id,chat_name,sender_name,sender_id,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,quantities,phones,locations,dedup_key)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        (external_id,chat_name,sender_name,sender_id,sender_username,sender_link,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,quantities,phones,locations,dedup_key)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
-            m.external_id,m.chat_name,m.sender_name,m.sender_id,m.text,m.sent_at,a["category"],
+            m.external_id,m.chat_name,m.sender_name,m.sender_id,m.sender_username,m.sender_link,m.text,m.sent_at,a["category"],
             dumps(a["brands"]),dumps(a["product_types"]),dumps(a["models"]),
             dumps(a["power_values"]),dumps(a["energy_values"]),dumps(a["price_values"]),
             dumps(a["quantities"]),dumps(a["phones"]),dumps(a["locations"]),dedup_key
@@ -105,7 +107,7 @@ input{flex:1;min-width:220px}button{cursor:pointer}.stats,.card{background:white
 <div class="bar"><input id="q" placeholder="جستجو: برند، محصول، شهر، متن..."><select id="cat">
 <option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option>
 <option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option>
-<option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input id="sender" placeholder="ID خریدار/فروشنده"><input id="from" type="datetime-local" title="از تاریخ"><input id="to" type="datetime-local" title="تا تاریخ"><button onclick="load()">جستجو</button></div>
+<option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input id="sender" placeholder="ID خریدار/فروشنده"><input id="from" inputmode="numeric" placeholder="از تاریخ شمسی؛ مثال ۱۴۰۵/۰۷/۰۱"><input id="to" inputmode="numeric" placeholder="تا تاریخ شمسی؛ مثال ۱۴۰۵/۰۷/۰۸"><button onclick="load()">جستجو</button><button onclick="clearFilters()">پاک‌کردن فیلترها</button></div>
 <div id="list"></div></div>
 <script>
 const labels={supplier_seller:'فروشنده/تأمین‌کننده',buyer_demand:'خریدار/تقاضا',stock_availability:'موجودی',inquiry_project:'استعلام/پروژه',other:'سایر'};
@@ -113,7 +115,7 @@ async function load(){
  let q=encodeURIComponent(document.getElementById('q').value),c=encodeURIComponent(document.getElementById('cat').value),sid=encodeURIComponent(document.getElementById('sender').value),df=encodeURIComponent(document.getElementById('from').value),dt=encodeURIComponent(document.getElementById('to').value);
  let s=await (await fetch('/api/stats')).json(); document.getElementById('stats').innerText=`کل پیام‌ها: ${s.total}`;
  let rows=await (await fetch(`/api/messages?q=${q}&category=${c}&sender_id=${sid}&date_from=${df}&date_to=${dt}`)).json();
- document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${escapeHtml(r.chat_name||'-')} • ${escapeHtml(r.sender_name||'-')}${r.sender_id?' • ID: '+escapeHtml(r.sender_id):''} • ${escapeHtml(r.sent_at_display||r.sent_at||'')}</div>
+ document.getElementById('list').innerHTML=rows.map(r=>`<div class="card"><div class="meta">${escapeHtml(r.chat_name||'-')} • ${senderHtml(r)} • ${escapeHtml(r.sent_at_display||r.sent_at||'')}</div>
  <p>${escapeHtml(r.text)}</p><span class="tag">${labels[r.category]||r.category}</span>
  ${(r.brands||[]).map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join('')} ${(r.models||[]).map(x=>`<span class="tag">مدل: ${escapeHtml(x)}</span>`).join('')} ${(r.power_values||[]).map(x=>`<span class="tag">توان: ${escapeHtml(x)}</span>`).join('')} ${(r.price_values||[]).map(x=>`<span class="tag">قیمت: ${escapeHtml(x)}</span>`).join('')} ${(r.locations||[]).map(x=>`<span class="tag">${escapeHtml(x)}</span>`).join('')}</div>`).join('');
 }
