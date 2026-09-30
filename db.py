@@ -39,6 +39,8 @@ def init_db():
           chat_name TEXT,
           sender_name TEXT,
           sender_id TEXT,
+          sender_username TEXT,
+          sender_link TEXT,
           text TEXT NOT NULL,
           sent_at TEXT,
           category TEXT,
@@ -56,6 +58,8 @@ def init_db():
           UNIQUE(external_id, chat_name)
         )''')
         _ensure_column(con, "messages", "sender_id", "TEXT")
+        _ensure_column(con, "messages", "sender_username", "TEXT")
+        _ensure_column(con, "messages", "sender_link", "TEXT")
         _ensure_column(con, "messages", "product_types", "TEXT")
         _ensure_column(con, "messages", "models", "TEXT")
         _ensure_column(con, "messages", "energy_values", "TEXT")
