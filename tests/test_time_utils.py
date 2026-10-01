@@ -6,7 +6,7 @@ class TimeUtilsTests(unittest.TestCase):
         self.assertEqual(canonical_sent_at(1790769600), "2026-09-30T12:00:00Z")
 
     def test_unix_milliseconds(self):
-        self.assertEqual(canonical_sent_at(1790769600000), "2026-09-30T08:00:00Z")
+        self.assertEqual(canonical_sent_at(1790769600000), "2026-09-30T12:00:00Z")
 
     def test_iso_utc(self):
         self.assertEqual(canonical_sent_at("2026-09-30T08:00:00Z"), "2026-09-30T08:00:00Z")
