@@ -70,6 +70,17 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(sent_at)")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_key ON messages(dedup_key) WHERE dedup_key IS NOT NULL")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS staff_users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          display_name TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_staff_users_active ON staff_users(is_active)")
+        con.execute('''
         CREATE TABLE IF NOT EXISTS source_registry (
           source_key TEXT PRIMARY KEY,
           title TEXT,
