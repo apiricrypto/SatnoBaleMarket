@@ -10,7 +10,7 @@ from search_utils import normalize_search_text, query_terms
 from time_utils import parse_message_datetime
 import json
 
-app = FastAPI(title="SATNO Bale Market Intelligence", version="0.2.0")
+app = FastAPI(title="SATNO Bale Market Intelligence", version="0.4.0")
 
 class MessageIn(BaseModel):
     external_id: Optional[str] = None
@@ -51,7 +51,7 @@ def save_message(m: MessageIn):
 
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"satno-bale-market","version":"0.2.0"}
+    return {"status":"ok","service":"satno-bale-market","version":"0.4.0"}
 
 @app.post("/api/messages")
 def create_message(m: MessageIn):
@@ -109,7 +109,10 @@ def stats():
         total=con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         cats={r[0]:r[1] for r in con.execute("SELECT category,COUNT(*) FROM messages GROUP BY category")}
         last=con.execute("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1").fetchone()
-    return {"total": total, "categories": cats, "last_sync": dict(last) if last else None}
+        sources=con.execute("SELECT COUNT(*) FROM source_registry WHERE enabled=1").fetchone()[0]
+        backfill=con.execute("SELECT COALESCE(SUM(messages_scanned),0),COALESCE(SUM(messages_saved),0) FROM backfill_state").fetchone()
+    return {"total": total, "categories": cats, "last_sync": dict(last) if last else None,
+            "active_sources":sources,"history_scanned":backfill[0],"history_saved":backfill[1]}
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
@@ -126,7 +129,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 .datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
-<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه آزمایشی 0.3 — جستجوی بازار، تاریخ شمسی و شناسه خریدار/فروشنده</div>
+<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.4 — Source Discovery، Sync افزایشی و جستجوی تاریخچه بازار</div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar">
 <input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
@@ -164,8 +167,8 @@ async function load(){
    const [sr,rr]=await Promise.all([fetch('/api/stats'),fetch('/api/messages?'+params().toString())]);
    if(!sr.ok||!rr.ok) throw new Error('HTTP '+sr.status+'/'+rr.status);
    const s=await sr.json(), rows=await rr.json();
-   const ls=s.last_sync; const syncText=ls?(' | آخرین Sync: '+(ls.finished_at||ls.started_at)+' | جدید: '+ls.messages_saved+' | چت‌ها: '+ls.chats_scanned):' | هنوز Sync ثبت نشده';
-   document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج جستجو: '+rows.length+syncText;
+   const ls=s.last_sync; const syncText=ls?(' | آخرین Sync: '+(ls.finished_at||ls.started_at)+' | جدید: '+ls.messages_saved):' | هنوز Sync ثبت نشده'; const sourceText=' | منابع فعال: '+s.active_sources+' | History: '+s.history_scanned;
+   document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج: '+rows.length+sourceText+syncText;
    list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+'</div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
