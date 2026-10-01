@@ -30,10 +30,26 @@ async def main():
                 username=str(getattr(entity,"username","") or "").lstrip("@")
                 name=str(getattr(entity,"title","") or "") or sender_id
                 link=f"https://ble.ir/{username}" if username else None
+                from datetime import datetime, timezone
+                now=datetime.now(timezone.utc).isoformat()
                 with connect() as con:
                     con.execute(
                         "UPDATE messages SET sender_name=?,sender_username=?,sender_link=? WHERE sender_id=?",
                         (name,username or None,link,sender_id),
+                    )
+                    con.execute(
+                        """
+                        INSERT INTO sender_directory(sender_id,sender_name,sender_username,sender_link,resolved_at,last_error,updated_at)
+                        VALUES(?,?,?,?,?,NULL,?)
+                        ON CONFLICT(sender_id) DO UPDATE SET
+                          sender_name=excluded.sender_name,
+                          sender_username=excluded.sender_username,
+                          sender_link=excluded.sender_link,
+                          resolved_at=excluded.resolved_at,
+                          last_error=NULL,
+                          updated_at=excluded.updated_at
+                        """,
+                        (sender_id,name,username or None,link,now,now),
                     )
                 resolved += 1
             except Exception as exc:
