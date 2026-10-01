@@ -7,9 +7,9 @@ from db import init_db, connect
 from classifier import analyze, dumps
 from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
-from search_utils import normalize_search_text, query_terms
+from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
-from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows
+from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.0")
@@ -37,6 +37,19 @@ def require_permission(permission):
 
 require_read = require_permission("read")
 require_message_write = require_permission("message:write")
+require_users_manage = require_permission("users:manage")
+
+class StaffUserCreate(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+    display_name: Optional[str] = None
+
+class StaffUserUpdate(BaseModel):
+    role: Optional[str] = None
+    display_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
 
 class MessageIn(BaseModel):
     external_id: Optional[str] = None
@@ -128,6 +141,34 @@ def logout(request: Request, response: Response):
 def auth_me(user=Depends(require_read)):
     return {"username": user["username"], "display_name": user["display_name"], "role": user["role"]}
 
+@app.get("/api/admin/users")
+def admin_list_users(user=Depends(require_users_manage)):
+    return list_users()
+
+@app.post("/api/admin/users", status_code=201)
+def admin_create_user(payload: StaffUserCreate, user=Depends(require_users_manage)):
+    try:
+        create_user(payload.username, payload.password, payload.role, payload.display_name)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    created = next((u for u in list_users() if u["username"] == payload.username.strip().lower()), None)
+    return created
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, payload: StaffUserUpdate, user=Depends(require_users_manage)):
+    try:
+        return update_user(
+            user_id,
+            role=payload.role,
+            display_name=payload.display_name,
+            is_active=payload.is_active,
+            password=payload.password,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        status = 404 if message == "user not found" else 400
+        raise HTTPException(status_code=status, detail=message)
+
 @app.get("/health")
 def health():
     return {"status":"ok","service":"satno-bale-market","version":"0.5.0"}
@@ -173,6 +214,8 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
                 continue
             filtered.append(r)
         rows=filtered
+    if q:
+        rows.sort(key=lambda r: (message_search_score(r, q), r.get("id") or 0), reverse=True)
     rows=rows[:limit]
     for r in rows:
         for k in ["brands","product_types","models","power_values","energy_values","price_values","quantities","phones","locations"]:
