@@ -17,13 +17,13 @@ class DisplayUtilsTests(unittest.TestCase):
         self.assertEqual(format_tehran_jalali("legacy-date"), "legacy-date")
 
     def test_date_filter_expands_day_bounds(self):
-        self.assertEqual(normalize_datetime_filter("2026-09-30"), "2026-09-30T00:00:00")
-        self.assertEqual(normalize_datetime_filter("2026-09-30", end=True), "2026-09-30T23:59:59")
+        self.assertEqual(normalize_datetime_filter("2026-09-30"), "2026-09-29T20:30:00")
+        self.assertEqual(normalize_datetime_filter("2026-09-30", end=True), "2026-09-30T20:29:59")
 
     def test_jalali_filter_converts_to_gregorian(self):
         self.assertEqual(jalali_to_gregorian(1405, 7, 8), (2026, 9, 30))
-        self.assertEqual(normalize_datetime_filter("۱۴۰۵/۰۷/۰۸"), "2026-09-30T00:00:00")
-        self.assertEqual(normalize_datetime_filter("1405/07/08", end=True), "2026-09-30T23:59:59")
+        self.assertEqual(normalize_datetime_filter("۱۴۰۵/۰۷/۰۸"), "2026-09-29T20:30:00")
+        self.assertEqual(normalize_datetime_filter("1405/07/08", end=True), "2026-09-30T20:29:59")
 
 
 if __name__ == "__main__":
