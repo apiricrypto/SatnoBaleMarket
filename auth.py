@@ -102,3 +102,71 @@ def role_allows(role, permission):
         "admin": {"read", "lead:send", "message:write", "users:manage"},
     }
     return permission in permissions.get(role, set())
+
+
+def list_users():
+    init_db()
+    with connect() as con:
+        rows = con.execute(
+            "SELECT id,username,role,display_name,is_active,created_at FROM staff_users ORDER BY id"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+def _active_admin_count(con):
+    return con.execute(
+        "SELECT COUNT(*) FROM staff_users WHERE role='admin' AND is_active=1"
+    ).fetchone()[0]
+
+def _revoke_user_sessions(con, user_id):
+    revoked_at = datetime.now(timezone.utc).isoformat()
+    con.execute(
+        "UPDATE staff_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+        (revoked_at, user_id),
+    )
+
+def update_user(user_id, role=None, display_name=None, is_active=None, password=None):
+    if role is not None and role not in {"admin","sales","viewer"}:
+        raise ValueError("invalid role")
+    if is_active is not None and not isinstance(is_active, bool):
+        raise ValueError("is_active must be boolean")
+    if password is not None and len(password) < 10:
+        raise ValueError("password must be at least 10 characters")
+
+    init_db()
+    with connect() as con:
+        current = con.execute(
+            "SELECT id,username,role,display_name,is_active FROM staff_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not current:
+            raise ValueError("user not found")
+
+        next_role = role if role is not None else current["role"]
+        next_active = int(is_active) if is_active is not None else current["is_active"]
+        if current["role"] == "admin" and current["is_active"]:
+            removing_last_admin = (next_role != "admin") or (not next_active)
+            if removing_last_admin and _active_admin_count(con) <= 1:
+                raise ValueError("cannot remove last active admin")
+
+        updates=[]
+        args=[]
+        if role is not None:
+            updates.append("role=?"); args.append(role)
+        if display_name is not None:
+            updates.append("display_name=?"); args.append(display_name)
+        if is_active is not None:
+            updates.append("is_active=?"); args.append(1 if is_active else 0)
+        if password is not None:
+            updates.append("password_hash=?"); args.append(hash_password(password))
+
+        if updates:
+            args.append(user_id)
+            con.execute("UPDATE staff_users SET " + ",".join(updates) + " WHERE id=?", args)
+            if role is not None or is_active is not None or password is not None:
+                _revoke_user_sessions(con, user_id)
+
+        row = con.execute(
+            "SELECT id,username,role,display_name,is_active,created_at FROM staff_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+    return dict(row)
