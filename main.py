@@ -143,6 +143,54 @@ def logout(request: Request, response: Response):
 def auth_me(user=Depends(require_read)):
     return {"username": user["username"], "display_name": user["display_name"], "role": user["role"]}
 
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users_page(request: Request):
+    user = _session_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if not role_allows(user["role"], "users:manage"):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return HTMLResponse("""<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مدیریت کاربران | SATNO Bale Market</title>
+<style>
+body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wrap{max-width:1000px;margin:auto;padding:20px}
+.card{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
+input,select,button{padding:9px;border:1px solid #d7dde7;border-radius:9px;margin:3px}button{cursor:pointer}
+table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right}
+.err{color:#b42318}a{color:#0866c6;text-decoration:none}
+</style></head><body><div class="wrap"><h2>مدیریت کاربران پرسنل</h2>
+<p><a href="/">← داشبورد</a></p>
+<form id="create" class="card"><input id="username" placeholder="نام کاربری" required>
+<input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
+<select id="role"><option value="viewer">viewer</option><option value="sales">sales</option><option value="admin">admin</option></select>
+<button type="submit">ایجاد کاربر</button><span id="msg"></span></form>
+<div class="card"><table><thead><tr><th>کاربر</th><th>نام</th><th>نقش</th><th>فعال</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div>
+</div><script>
+function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+async function load(){
+ const r=await fetch('/api/admin/users'); if(!r.ok)return; const users=await r.json();
+ rows.innerHTML=users.map(u=>'<tr><td>'+e(u.username)+'</td><td><input id="n'+u.id+'" value="'+e(u.display_name||'')+'"></td><td><select id="r'+u.id+'"><option '+(u.role==='viewer'?'selected':'')+'>viewer</option><option '+(u.role==='sales'?'selected':'')+'>sales</option><option '+(u.role==='admin'?'selected':'')+'>admin</option></select></td><td><input id="a'+u.id+'" type="checkbox" '+(u.is_active?'checked':'')+'></td><td><button onclick="save('+u.id+')">ذخیره</button><button onclick="resetPw('+u.id+')">رمز جدید</button></td></tr>').join('');
+}
+async function save(id){
+ const body={role:document.getElementById('r'+id).value,display_name:document.getElementById('n'+id).value,is_active:document.getElementById('a'+id).checked};
+ const r=await fetch('/api/admin/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ if(!r.ok){alert((await r.json()).detail||'خطا');return;} load();
+}
+async function resetPw(id){
+ const p=prompt('رمز جدید (حداقل ۱۰ کاراکتر):'); if(!p)return;
+ const r=await fetch('/api/admin/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
+ if(!r.ok){alert((await r.json()).detail||'خطا');return;} alert('رمز تغییر کرد و Sessionهای قبلی لغو شدند.');
+}
+document.getElementById('create').addEventListener('submit',async(ev)=>{
+ ev.preventDefault(); msg.textContent='';
+ const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,display_name:display_name.value,password:password.value,role:role.value})});
+ if(!r.ok){msg.textContent=(await r.json()).detail||'خطا';return;}
+ ev.target.reset(); load();
+});
+load();
+</script></body></html>""")
+
 @app.get("/api/admin/users")
 def admin_list_users(user=Depends(require_users_manage)):
     return list_users()
@@ -339,7 +387,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <button id="logoutBtn" type="button">خروج</button></div>
+<div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <a href="/admin/users">مدیریت کاربران</a> • <button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar">
 <input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
