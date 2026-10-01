@@ -81,6 +81,18 @@ def init_db():
         )''')
         con.execute("CREATE INDEX IF NOT EXISTS idx_staff_users_active ON staff_users(is_active)")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS staff_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          revoked_at TEXT,
+          FOREIGN KEY(user_id) REFERENCES staff_users(id)
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_staff_sessions_user_id ON staff_sessions(user_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_staff_sessions_expires_at ON staff_sessions(expires_at)")
+        con.execute('''
         CREATE TABLE IF NOT EXISTS source_registry (
           source_key TEXT PRIMARY KEY,
           title TEXT,
