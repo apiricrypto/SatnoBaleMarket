@@ -10,6 +10,7 @@ from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
 from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user
+from crm_connector import send_queued_lead
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.0")
@@ -38,6 +39,7 @@ def require_permission(permission):
 require_read = require_permission("read")
 require_message_write = require_permission("message:write")
 require_users_manage = require_permission("users:manage")
+require_lead_send = require_permission("lead:send")
 
 class StaffUserCreate(BaseModel):
     username: str
@@ -225,6 +227,88 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
         r["sender_clickable"] = bool(r.get("sender_link"))
     return rows
 
+@app.get("/api/sources")
+def sources(user=Depends(require_read)):
+    with connect() as con:
+        rows = [dict(r) for r in con.execute(
+            """
+            SELECT source_key,title,peer_type,peer_id,score,matched_terms,enabled,discovered_at,last_seen_at
+            FROM source_registry
+            ORDER BY enabled DESC, score DESC, title
+            """
+        ).fetchall()]
+    return rows
+
+@app.get("/api/sync/status")
+def sync_status(user=Depends(require_read)):
+    with connect() as con:
+        latest = con.execute("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1").fetchone()
+        totals = con.execute(
+            "SELECT COALESCE(SUM(messages_scanned),0),COALESCE(SUM(messages_saved),0),COALESCE(SUM(completed),0),COUNT(*) FROM backfill_state"
+        ).fetchone()
+        sender_stats = con.execute(
+            "SELECT COUNT(*),SUM(CASE WHEN sender_username IS NOT NULL AND sender_username!='' THEN 1 ELSE 0 END) FROM sender_directory"
+        ).fetchone()
+        outbox = con.execute(
+            "SELECT status,COUNT(*) FROM crm_lead_outbox GROUP BY status"
+        ).fetchall()
+    return {
+        "latest_sync": dict(latest) if latest else None,
+        "history_scanned": totals[0],
+        "history_saved": totals[1],
+        "history_completed_sources": totals[2],
+        "history_sources": totals[3],
+        "senders_cached": sender_stats[0] or 0,
+        "senders_with_username": sender_stats[1] or 0,
+        "crm_outbox": {r[0]: r[1] for r in outbox},
+    }
+
+@app.get("/status", response_class=HTMLResponse)
+def status_page(request: Request):
+    user = _session_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    return HTMLResponse("""<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>وضعیت منابع | SATNO Bale Market</title>
+<style>
+body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wrap{max-width:1100px;margin:auto;padding:20px}
+.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
+table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right;font-size:13px}
+a{color:#0866c6;text-decoration:none}
+</style></head><body><div class="wrap">
+<h2>وضعیت منابع و Sync</h2><p><a href="/">← بازگشت به داشبورد</a></p>
+<div id="summary" class="card">در حال بارگذاری...</div>
+<div class="card"><table><thead><tr><th>منبع</th><th>نوع</th><th>امتیاز</th><th>فعال</th><th>آخرین مشاهده</th></tr></thead><tbody id="rows"></tbody></table></div>
+</div><script>
+function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+async function load(){
+ const [s,r]=await Promise.all([fetch('/api/sync/status'),fetch('/api/sources')]);
+ if(!s.ok||!r.ok){document.getElementById('summary').textContent='خطا در دریافت وضعیت';return;}
+ const st=await s.json(), rows=await r.json();
+ const ls=st.latest_sync||{};
+ document.getElementById('summary').textContent=
+ 'آخرین Sync: '+(ls.finished_at||ls.started_at||'-')+
+ ' | وضعیت: '+(ls.status||'-')+
+ ' | پیام جدید: '+(ls.messages_saved||0)+
+ ' | منابع History: '+st.history_sources+
+ ' | فرستنده‌های Cache: '+st.senders_cached+
+ ' | CRM Outbox: '+JSON.stringify(st.crm_outbox||{});
+ document.getElementById('rows').innerHTML=rows.map(x=>'<tr><td>'+e(x.title||x.source_key)+'</td><td>'+e(x.peer_type||'')+'</td><td>'+e(x.score)+'</td><td>'+(x.enabled?'بله':'خیر')+'</td><td>'+e(x.last_seen_at||'')+'</td></tr>').join('');
+}
+load();
+</script></body></html>""")
+
+@app.post("/api/leads/{message_id}/send")
+def send_lead(message_id: int, user=Depends(require_lead_send)):
+    try:
+        result = send_queued_lead(message_id, user["username"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=502, detail=result)
+    return result
+
 @app.get("/api/stats")
 def stats(user=Depends(require_read)):
     with connect() as con:
@@ -255,7 +339,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="meta"><button id="logoutBtn" type="button">خروج</button></div>
+<div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar">
 <input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
@@ -272,6 +356,16 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 <script>
 const labels={supplier_seller:'فروشنده/تأمین‌کننده',buyer_demand:'خریدار/تقاضا',stock_availability:'موجودی',inquiry_project:'استعلام/پروژه',other:'سایر'};
 function escapeHtml(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+async function sendLead(id,btn){
+ btn.disabled=true;const old=btn.textContent;btn.textContent='در حال ارسال...';
+ try{
+   const r=await fetch('/api/leads/'+id+'/send',{method:'POST'});
+   const data=await r.json();
+   if(r.ok){btn.textContent=data.status==='sent'?'ارسال شد':'در صف CRM';}
+   else{btn.textContent='خطا';alert('ارسال Lead ناموفق بود');}
+ }catch(e){btn.textContent='خطا';}
+ setTimeout(()=>{btn.disabled=false;btn.textContent=old;},2500);
+}
 function senderHtml(r){
  const label=escapeHtml(r.sender_username||r.sender_name||r.sender_id||'-');
  if(r.sender_link && /^https:\/\/ble\.ir\/[A-Za-z0-9_.-]+\/?$/.test(r.sender_link)){
@@ -295,7 +389,7 @@ async function load(){
    const s=await sr.json(), rows=await rr.json();
    const ls=s.last_sync; const syncText=ls?(' | آخرین Sync: '+(ls.finished_at||ls.started_at)+' | جدید: '+ls.messages_saved):' | هنوز Sync ثبت نشده'; const sourceText=' | منابع فعال: '+s.active_sources+' | History: '+s.history_scanned;
    document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج: '+rows.length+sourceText+syncText;
-   list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+'</div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' <button type="button" class="leadBtn" onclick="sendLead('+r.id+',this)">ارسال Lead به CRM</button></div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');document.getElementById('cat').value='';load();}
