@@ -34,3 +34,56 @@ def expand_term(term: str):
 
 def query_terms(query: str):
     return [expand_term(t) for t in normalize_search_text(query).split() if t]
+
+
+_SEARCH_WEIGHTS = {
+    "models": 9,
+    "brands": 8,
+    "product_types": 7,
+    "locations": 6,
+    "power_values": 6,
+    "energy_values": 6,
+    "price_values": 5,
+    "sender_username": 5,
+    "sender_name": 4,
+    "chat_name": 3,
+    "text": 2,
+    "category": 1,
+}
+
+def message_search_score(row, query: str) -> int:
+    normalized_query = normalize_search_text(query)
+    if not normalized_query:
+        return 0
+
+    groups = query_terms(normalized_query)
+    score = 0
+    matched_groups = 0
+
+    for variants in groups:
+        group_best = 0
+        for field, weight in _SEARCH_WEIGHTS.items():
+            haystack = normalize_search_text(str(row.get(field) or ""))
+            if not haystack:
+                continue
+            if any(v and v in haystack for v in variants):
+                group_best = max(group_best, weight)
+        if group_best:
+            matched_groups += 1
+            score += group_best
+
+    if matched_groups != len(groups):
+        return 0
+
+    text_haystack = normalize_search_text(str(row.get("text") or ""))
+    if normalized_query in text_haystack:
+        score += 4
+
+    structured = " ".join(
+        normalize_search_text(str(row.get(k) or ""))
+        for k in ("models","brands","product_types","locations","power_values","energy_values")
+    )
+    if normalized_query in structured:
+        score += 8
+
+    return score
