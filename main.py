@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse
+import os
+from fastapi import FastAPI, Query, Request, Response, HTTPException, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
 from db import init_db, connect
@@ -8,9 +9,34 @@ from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms
 from time_utils import parse_message_datetime
+from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows
 import json
 
-app = FastAPI(title="SATNO Bale Market Intelligence", version="0.4.0")
+app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.0")
+
+SESSION_COOKIE_NAME = "satno_staff_session"
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+def _session_user(request: Request):
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    return resolve_session(token) if token else None
+
+def require_permission(permission):
+    def dependency(request: Request):
+        user = _session_user(request)
+        if not user:
+            raise HTTPException(status_code=401, detail="authentication required")
+        if not role_allows(user["role"], permission):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return user
+    return dependency
+
+require_read = require_permission("read")
+require_message_write = require_permission("message:write")
 
 class MessageIn(BaseModel):
     external_id: Optional[str] = None
@@ -49,17 +75,70 @@ def save_message(m: MessageIn):
         inserted_id = cur.lastrowid if cur.rowcount == 1 else None
         return inserted_id, a
 
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if _session_user(request):
+        return RedirectResponse("/", status_code=303)
+    return HTMLResponse("""<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ورود پرسنل | SATNO Bale Market</title>
+<style>
+body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;display:grid;place-items:center;min-height:100vh;margin:0}
+.box{width:min(380px,90vw);background:white;border:1px solid #e6eaf0;border-radius:16px;padding:22px;box-shadow:0 10px 30px #0001}
+input,button{box-sizing:border-box;width:100%;padding:12px;margin:7px 0;border:1px solid #d7dde7;border-radius:10px}
+button{cursor:pointer;background:#102d3d;color:white}.err{color:#b42318;min-height:24px}
+</style></head><body><form class="box" id="loginForm">
+<h2>ورود پرسنل ساتنو</h2><input id="username" autocomplete="username" placeholder="نام کاربری" required>
+<input id="password" type="password" autocomplete="current-password" placeholder="رمز عبور" required>
+<button type="submit">ورود</button><div id="err" class="err"></div></form>
+<script>
+document.getElementById('loginForm').addEventListener('submit',async(e)=>{
+ e.preventDefault();const err=document.getElementById('err');err.textContent='';
+ const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
+ if(r.ok){location.href='/';return;} err.textContent='نام کاربری یا رمز عبور نادرست است.';
+});
+</script></body></html>""")
+
+@app.post("/api/auth/login")
+def login(payload: LoginIn, response: Response):
+    user = authenticate_user(payload.username, payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    token = create_session(user["id"])
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        max_age=8 * 60 * 60,
+        httponly=True,
+        secure=SESSION_COOKIE_SECURE,
+        samesite="strict",
+        path="/",
+    )
+    return {"username": user["username"], "display_name": user["display_name"], "role": user["role"]}
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token:
+        revoke_session(token)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return {"ok": True}
+
+@app.get("/api/auth/me")
+def auth_me(user=Depends(require_read)):
+    return {"username": user["username"], "display_name": user["display_name"], "role": user["role"]}
+
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"satno-bale-market","version":"0.4.0"}
+    return {"status":"ok","service":"satno-bale-market","version":"0.5.0"}
 
 @app.post("/api/messages")
-def create_message(m: MessageIn):
+def create_message(m: MessageIn, user=Depends(require_message_write)):
     mid, a = save_message(m)
     return {"id": mid, "analysis": a}
 
 @app.get("/api/messages")
-def list_messages(q: str = "", category: str = "", sender_id: str = "", date_from: str = "", date_to: str = "", limit: int = Query(100, ge=1, le=500)):
+def list_messages(q: str = "", category: str = "", sender_id: str = "", date_from: str = "", date_to: str = "", limit: int = Query(100, ge=1, le=500), user=Depends(require_read)):
     sql = "SELECT * FROM messages WHERE 1=1"
     args=[]
     if q:
@@ -104,7 +183,7 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     return rows
 
 @app.get("/api/stats")
-def stats():
+def stats(user=Depends(require_read)):
     with connect() as con:
         total=con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         cats={r[0]:r[1] for r in con.execute("SELECT category,COUNT(*) FROM messages GROUP BY category")}
@@ -115,7 +194,10 @@ def stats():
             "active_sources":sources,"history_scanned":backfill[0],"history_saved":backfill[1]}
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard():
+def dashboard(request: Request):
+    user = _session_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
     return HTMLResponse("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SATNO Bale Market Intelligence</title>
@@ -129,7 +211,8 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 .datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
-<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.4 — Source Discovery، Sync افزایشی و جستجوی تاریخچه بازار</div>
+<h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
+<div class="meta"><button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar">
 <input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
@@ -193,6 +276,7 @@ document.getElementById('pickerClose').onclick=()=>document.getElementById('pick
 document.getElementById('prevMonth').onclick=()=>{pickerM--;if(pickerM<1){pickerM=12;pickerY--;}renderPicker();};
 document.getElementById('nextMonth').onclick=()=>{pickerM++;if(pickerM>12){pickerM=1;pickerY++;}renderPicker();};
 
+document.getElementById('logoutBtn').addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/login';});
 document.getElementById('searchBtn').addEventListener('click',load);
 document.getElementById('clearBtn').addEventListener('click',clearFilters);
 ['q','sender','from','to'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')load();}));
