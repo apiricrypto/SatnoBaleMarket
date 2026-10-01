@@ -131,3 +131,28 @@ def init_db():
           cursor TEXT,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
+        con.execute('''
+        CREATE TABLE IF NOT EXISTS sender_directory (
+          sender_id TEXT PRIMARY KEY,
+          sender_name TEXT,
+          sender_username TEXT,
+          sender_link TEXT,
+          resolved_at TEXT,
+          last_error TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_sender_directory_username ON sender_directory(sender_username)")
+        con.execute('''
+        CREATE TABLE IF NOT EXISTS crm_lead_outbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          message_id INTEGER NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          requested_by TEXT,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          last_error TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          sent_at TEXT,
+          FOREIGN KEY(message_id) REFERENCES messages(id)
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_crm_lead_outbox_status ON crm_lead_outbox(status)")
