@@ -116,6 +116,9 @@ def init_db():
           duplicates INTEGER DEFAULT 0,
           status TEXT DEFAULT 'running'
         )''')
+        _ensure_column(con, "sync_runs", "dialogs_seen", "INTEGER DEFAULT 0")
+        _ensure_column(con, "sync_runs", "error_code", "TEXT")
+        _ensure_column(con, "sync_runs", "error_detail", "TEXT")
         con.execute('''
         CREATE TABLE IF NOT EXISTS backfill_state (
           source_key TEXT PRIMARY KEY,
