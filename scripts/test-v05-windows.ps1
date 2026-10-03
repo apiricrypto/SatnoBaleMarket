@@ -20,8 +20,8 @@ try {
     Write-Host "[3/4] Secret/file guard"
     $blocked = @(".env.local", "satno_market.db")
     foreach ($item in $blocked) {
-        $tracked = git ls-files --error-unmatch $item 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        $tracked = git ls-files -- $item 2>$null
+        if ($tracked) {
             throw "Sensitive runtime file is tracked by git: $item"
         }
     }
