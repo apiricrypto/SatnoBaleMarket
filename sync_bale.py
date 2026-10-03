@@ -3,6 +3,8 @@ import os
 
 from dotenv import load_dotenv
 from bale import BaleClient
+from bale.peer import Peer
+from types import SimpleNamespace
 
 from main import MessageIn, save_message
 from db import connect, init_db
@@ -76,6 +78,37 @@ def classify_sync_health(dialogs_seen, registry_count, selected_count):
     return ("ok", None, None)
 
 
+def registry_row_to_target(row):
+    try:
+        peer_type = int(row["peer_type"])
+        peer_id = int(row["peer_id"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    if peer_type == 1:
+        peer = Peer.user(peer_id)
+    elif peer_type == 2:
+        peer = Peer.channel(peer_id)
+    else:
+        peer = Peer(peer_id, peer_type, 1)
+    return SimpleNamespace(title=row["title"] or row["source_key"], peer=peer)
+
+
+def load_registry_targets():
+    with connect() as con:
+        rows = con.execute(
+            """SELECT source_key,title,peer_type,peer_id
+               FROM source_registry
+               WHERE enabled=1
+               ORDER BY score DESC, title"""
+        ).fetchall()
+    targets = []
+    for row in rows:
+        target = registry_row_to_target(row)
+        if target is not None:
+            targets.append(target)
+    return targets
+
+
 def get_text(message):
     content = getattr(message, "content", None)
     if content:
@@ -112,6 +145,10 @@ async def main():
     sync_status = "ok"
     error_code = None
     error_detail = None
+    discovery_mode = "dialogs"
+    source_attempts = 0
+    source_successes = 0
+    source_failures = 0
 
     async with BaleClient(token) as client:
         selected = []
@@ -131,13 +168,20 @@ async def main():
             if key in registry_keys or any(keyword.lower() in title.lower() for keyword in KEYWORDS):
                 selected.append(dialog)
 
+        if dialogs_seen == 0 and registry_count > 0:
+            fallback = load_registry_targets()
+            if fallback:
+                selected = fallback
+                discovery_mode = "registry-fallback"
+
         print(f"Dialogs seen: {dialogs_seen}")
+        print(f"Discovery mode: {discovery_mode}")
         print(f"Market sources found: {len(selected)}")
         print(f"Syncing first {min(MAX_CHATS, len(selected))} chats...")
         chats_scanned = min(MAX_CHATS, len(selected))
 
         sync_status, error_code, error_detail = classify_sync_health(
-            dialogs_seen, registry_count, len(selected)
+            dialogs_seen, registry_count, len(selected) if discovery_mode == "dialogs" else 0
         )
 
         for dialog in selected[:MAX_CHATS]:
@@ -155,6 +199,7 @@ async def main():
             print("CHAT:", title)
             print("Checkpoint:", previous_cursor or "FIRST SYNC")
 
+            source_attempts += 1
             try:
                 messages = await client.get_messages(
                     peer,
@@ -164,9 +209,11 @@ async def main():
                     offset_date=-1,
                 )
             except Exception as exc:
+                source_failures += 1
                 print("ERROR:", repr(exc))
                 continue
 
+            source_successes += 1
             chat_read = 0
             chat_text = 0
             chat_saved = 0
@@ -253,6 +300,19 @@ async def main():
                 f"Checkpoint hit: {reached_checkpoint}"
             )
 
+        if discovery_mode == "registry-fallback":
+            if source_successes > 0:
+                sync_status = "ok"
+                error_code = None
+                error_detail = None
+            else:
+                sync_status = "degraded"
+                error_code = "bale_registry_fallback_failed"
+                error_detail = (
+                    f"LoadDialogs returned zero dialogs and direct registry fallback "
+                    f"failed for {source_failures}/{source_attempts} sources."
+                )
+
     print()
     print("=" * 60)
     print("SYNC COMPLETE")
@@ -260,6 +320,10 @@ async def main():
     print("Text messages :", total_text)
     print("New saved     :", total_saved)
     print("Duplicates    :", total_duplicates)
+    print("Source attempts:", source_attempts)
+    print("Source success :", source_successes)
+    print("Source failures:", source_failures)
+    print("Discovery mode :", discovery_mode)
     print("Sync status   :", sync_status)
     if error_code:
         print("Sync warning  :", error_code)
