@@ -59,6 +59,23 @@ def save_resolved_sender(sender_id, name, username, link, error=None):
         )
 
 
+def classify_sync_health(dialogs_seen, registry_count, selected_count):
+    if dialogs_seen == 0 and registry_count > 0:
+        return (
+            "degraded",
+            "bale_no_dialogs",
+            "Bale client returned zero dialogs while active sources exist. "
+            "Check Bale transport/protocol compatibility or token validity.",
+        )
+    if dialogs_seen > 0 and registry_count > 0 and selected_count == 0:
+        return (
+            "degraded",
+            "bale_no_source_matches",
+            "Bale dialogs were returned, but none matched the active source registry or market keywords.",
+        )
+    return ("ok", None, None)
+
+
 def get_text(message):
     content = getattr(message, "content", None)
     if content:
@@ -119,19 +136,9 @@ async def main():
         print(f"Syncing first {min(MAX_CHATS, len(selected))} chats...")
         chats_scanned = min(MAX_CHATS, len(selected))
 
-        if dialogs_seen == 0 and registry_count > 0:
-            sync_status = "degraded"
-            error_code = "bale_no_dialogs"
-            error_detail = (
-                "Bale client returned zero dialogs while active sources exist. "
-                "Check Bale transport/protocol compatibility or token validity."
-            )
-        elif dialogs_seen > 0 and registry_count > 0 and len(selected) == 0:
-            sync_status = "degraded"
-            error_code = "bale_no_source_matches"
-            error_detail = (
-                "Bale dialogs were returned, but none matched the active source registry or market keywords."
-            )
+        sync_status, error_code, error_detail = classify_sync_health(
+            dialogs_seen, registry_count, len(selected)
+        )
 
         for dialog in selected[:MAX_CHATS]:
             title = getattr(dialog, "title", "") or ""
