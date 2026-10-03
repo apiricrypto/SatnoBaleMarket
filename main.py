@@ -338,10 +338,12 @@ async function load(){
  document.getElementById('summary').textContent=
  'آخرین Sync: '+(ls.finished_at||ls.started_at||'-')+
  ' | وضعیت: '+(ls.status||'-')+
+ ' | دیالوگ دیده‌شده: '+(ls.dialogs_seen||0)+
  ' | پیام جدید: '+(ls.messages_saved||0)+
  ' | منابع History: '+st.history_sources+
  ' | فرستنده‌های Cache: '+st.senders_cached+
- ' | CRM Outbox: '+JSON.stringify(st.crm_outbox||{});
+ ' | CRM Outbox: '+JSON.stringify(st.crm_outbox||{})+
+ ((ls.error_code||ls.error_detail)?' | هشدار: '+e(ls.error_code||'')+' '+e(ls.error_detail||''):'');
  document.getElementById('rows').innerHTML=rows.map(x=>'<tr><td>'+e(x.title||x.source_key)+'</td><td>'+e(x.peer_type||'')+'</td><td>'+e(x.score)+'</td><td>'+(x.enabled?'بله':'خیر')+'</td><td>'+e(x.last_seen_at||'')+'</td></tr>').join('');
 }
 load();
