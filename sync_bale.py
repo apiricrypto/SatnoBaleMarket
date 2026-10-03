@@ -89,26 +89,49 @@ async def main():
     total_saved = 0
     total_duplicates = 0
     sender_cache = {}
+    dialogs_seen = 0
+    chats_scanned = 0
+    registry_count = 0
+    sync_status = "ok"
+    error_code = None
+    error_detail = None
 
     async with BaleClient(token) as client:
         selected = []
         with connect() as con:
             registry_keys={r[0] for r in con.execute("SELECT source_key FROM source_registry WHERE enabled=1").fetchall()}
+        registry_count = len(registry_keys)
 
         async for dialog in client.iter_dialogs(
             limit=500,
             page_size=50,
             resolve_names=True,
         ):
+            dialogs_seen += 1
             title = getattr(dialog, "title", "") or ""
             peer = getattr(dialog, "peer", None)
             key = get_source_key(peer) if peer is not None else ""
             if key in registry_keys or any(keyword.lower() in title.lower() for keyword in KEYWORDS):
                 selected.append(dialog)
 
+        print(f"Dialogs seen: {dialogs_seen}")
         print(f"Market sources found: {len(selected)}")
         print(f"Syncing first {min(MAX_CHATS, len(selected))} chats...")
         chats_scanned = min(MAX_CHATS, len(selected))
+
+        if dialogs_seen == 0 and registry_count > 0:
+            sync_status = "degraded"
+            error_code = "bale_no_dialogs"
+            error_detail = (
+                "Bale client returned zero dialogs while active sources exist. "
+                "Check Bale transport/protocol compatibility or token validity."
+            )
+        elif dialogs_seen > 0 and registry_count > 0 and len(selected) == 0:
+            sync_status = "degraded"
+            error_code = "bale_no_source_matches"
+            error_detail = (
+                "Bale dialogs were returned, but none matched the active source registry or market keywords."
+            )
 
         for dialog in selected[:MAX_CHATS]:
             title = getattr(dialog, "title", "") or ""
@@ -230,10 +253,21 @@ async def main():
     print("Text messages :", total_text)
     print("New saved     :", total_saved)
     print("Duplicates    :", total_duplicates)
+    print("Sync status   :", sync_status)
+    if error_code:
+        print("Sync warning  :", error_code)
     finished_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connect() as con:
-        con.execute("""UPDATE sync_runs SET finished_at=?,chats_scanned=?,messages_read=?,messages_saved=?,duplicates=?,status='ok' WHERE id=?""",
-                    (finished_at,chats_scanned,total_read,total_saved,total_duplicates,run_id))
+        con.execute(
+            """UPDATE sync_runs
+               SET finished_at=?,chats_scanned=?,messages_read=?,messages_saved=?,duplicates=?,
+                   dialogs_seen=?,status=?,error_code=?,error_detail=?
+               WHERE id=?""",
+            (
+                finished_at,chats_scanned,total_read,total_saved,total_duplicates,
+                dialogs_seen,sync_status,error_code,error_detail,run_id
+            ),
+        )
 
 
 if __name__ == "__main__":
