@@ -13,9 +13,15 @@ Push-Location (Join-Path $PSScriptRoot "..")
 try {
     Write-Host "[1/4] Compile"
     & $python -m compileall -q .
+    if ($LASTEXITCODE -ne 0) {
+        throw "Compile failed with exit code $LASTEXITCODE"
+    }
 
     Write-Host "[2/4] Unit/regression tests"
     & $python -m unittest discover -s tests -v
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unit/regression tests failed with exit code $LASTEXITCODE"
+    }
 
     Write-Host "[3/4] Secret/file guard"
     $blocked = @(".env.local", "satno_market.db")
@@ -28,6 +34,9 @@ try {
 
     Write-Host "[4/4] Branch guard"
     $branch = (git branch --show-current).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to determine git branch"
+    }
     if ($branch -ne "feature/staff-v05") {
         throw "Expected feature/staff-v05, got: $branch"
     }
