@@ -4,11 +4,26 @@ from dedup import make_dedup_key
 
 DB_PATH = os.getenv("DATABASE_PATH", "satno_market.db")
 
+
+class ClosingConnection(sqlite3.Connection):
+    """SQLite connection that also closes when leaving a with block.
+
+    sqlite3.Connection.__exit__ commits or rolls back but does not close the
+    database handle. On Windows that leaves temporary test databases locked.
+    """
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def connect():
     db = Path(DB_PATH)
     if db.parent != Path("."):
         db.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(db))
+    con = sqlite3.connect(str(db), factory=ClosingConnection)
     con.row_factory = sqlite3.Row
     return con
 
