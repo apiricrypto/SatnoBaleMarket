@@ -4,20 +4,35 @@
 
 ## v0.5 Staff Edition
 
-Branch توسعه: `feature/staff-v05`
+Branch عملیاتی/توسعه نگهداری: `feature/staff-v05`
 
-قابلیت‌های اصلی این نسخه:
+قابلیت‌های اصلی:
 - Login پرسنل با password hash امن
 - Session سمت‌سرور با token hash و Logout/Revoke
 - RBAC نقش‌های `admin`، `sales` و `viewer`
 - حفاظت Dashboard و API
 - مدیریت کاربران پرسنل و جلوگیری از حذف آخرین Admin فعال
-- Search Ranking وزن‌دار برای برند، مدل، نوع محصول، محل و متن
+- تفکیک پیام‌ها به تأمین‌کننده/فروشنده، موجودی/فروش، تقاضای خرید، استعلام/پروژه و سایر
+- استخراج قابل بازبینی برند، محصول، مدل، توان، ظرفیت، قیمت، واحد پول، محل و تماس
+- Search Ranking وزن‌دار و فیلتر پیام‌ها
+- حفظ منشأ پیام و Sender Resolution
 - صفحه وضعیت منابع و Sync
-- Sender Resolution با cache پایدار در SQLite
-- قرارداد `satno.lead.v1` و Outbox idempotent برای SATNO CRM
-- دکمه ارسال Lead به CRM
-- آمادگی تست ایزوله Windows Server روی پورت جداگانه
+- مدیریت دستی منابع بله: افزودن، ویرایش، فعال/غیرفعال و حذف
+- بررسی انسانی سرنخ، انتخاب/رد و ثبت reviewer
+- Outbox پایدار و idempotent برای اتصال آینده SATNO CRM Alpha 2.2
+- Adapter منطبق با قرارداد `ingest_leads` و هدر `x-satno-connector: bale_market`
+- رسید معتبر CRM، retry محدود و ثبت وضعیت/خطا
+- گیرنده آزمایشی loopback برای تست بدون CRM واقعی
+
+## صفحات
+
+- `/login`
+- `/` داشبورد و جست‌وجو
+- `/status` وضعیت منابع و Sync
+- `/review` بررسی انسانی و انتخاب سرنخ
+- `/sources/manage` مدیریت منابع بله
+- `/crm/outbox` وضعیت صف اتصال CRM
+- `/admin/users` مدیریت کاربران
 
 ## اجرای محلی
 
@@ -32,12 +47,6 @@ Health check:
 GET /health
 ```
 
-صفحات:
-- `/login`
-- `/` داشبورد
-- `/status` وضعیت منابع و Sync
-- `/admin/users` مدیریت کاربران Admin
-
 ## ساخت اولین Admin
 
 ```bash
@@ -48,13 +57,19 @@ python create_staff_user.py admin --role admin --name "SATNO Admin"
 
 ## تست
 
-Windows:
+Regression روی Windows:
 
 ```powershell
 .\scripts\test-v05-windows.ps1
 ```
 
-یا:
+Acceptance آداپتر CRM با گیرنده آزمایشی:
+
+```powershell
+.\scripts\test-crm-adapter-windows.ps1
+```
+
+یا unit/regression:
 
 ```bash
 python -m unittest discover -s tests -v
@@ -62,22 +77,43 @@ python -m unittest discover -s tests -v
 
 ## امنیت
 
-فایل‌ها و داده‌های زیر نباید commit شوند:
+موارد زیر نباید commit یا در UI/Log افشا شوند:
 - `.env.local`
 - `BALE_TOKEN`
-- `SATNO_CRM_API_TOKEN`
+- `SATNO_BALE_MARKET_INGEST_TOKEN`
 - password خام
 - session runtime
 - `satno_market.db` و سایر SQLiteهای عملیاتی
 
-نمونه تنظیمات در `.env.example` است. مقادیر واقعی فقط server-side قرار می‌گیرند.
+## CRM Alpha 2.2
 
-## CRM
+اتصال زنده در Alpha 2.1 عمداً غیرفعال می‌ماند.
 
-اگر `SATNO_CRM_LEAD_URL` تنظیم نشده باشد، Leadها در `crm_lead_outbox` با idempotency ذخیره می‌شوند و داده از بین نمی‌رود. پس از تنظیم endpoint واقعی CRM، ارسال توسط backend انجام می‌شود و token CRM به مرورگر داده نمی‌شود.
+تا زمان تأیید Alpha 2.2:
+- `SATNO_CRM_LEAD_URL` خالی بماند.
+- سرنخ انتخاب‌شده فقط وارد `crm_lead_outbox` می‌شود.
+- ورود به Lead Inbox به معنی ساخت خودکار Company، Contact، Deal یا Project نیست.
+
+سند اصلی آمادگی:
+- [docs/CRM_ALPHA22_READINESS.md](docs/CRM_ALPHA22_READINESS.md)
+- [docs/sample-bale-lead-alpha22.json](docs/sample-bale-lead-alpha22.json)
 
 ## Production
 
-راهنمای تست و استقرار در [DEPLOYMENT_V05.md](DEPLOYMENT_V05.md) است.
+Production فعلی Windows Server:
+- مسیر: `C:\Satno\SatnoBaleMarket-v05`
+- پورت: `8000`
 
-**v0.5 نباید بدون تأیید صریح روی Production جایگزین v0.4 شود.**
+نصب بسته آمادگی Alpha 2.2:
+
+```powershell
+.\scripts\install-alpha22-readiness-windows.ps1
+```
+
+Rollback با backup path تولیدشده توسط installer:
+
+```powershell
+.\scripts\rollback-alpha22-readiness-windows.ps1 -BackupPath "C:\Satno\backup\bale-market-alpha22-YYYYMMDD-HHMMSS"
+```
+
+اسکریپت‌های این بسته فقط SATNO Bale Market را مدیریت می‌کنند و نباید فارسیکام، VoIP یا سرویس‌های دیگر سرور را تغییر دهند.
