@@ -65,6 +65,7 @@ def init_db():
           power_values TEXT,
           energy_values TEXT,
           price_values TEXT,
+          currency_values TEXT,
           quantities TEXT,
           phones TEXT,
           locations TEXT,
@@ -79,6 +80,7 @@ def init_db():
         _ensure_column(con, "messages", "models", "TEXT")
         _ensure_column(con, "messages", "energy_values", "TEXT")
         _ensure_column(con, "messages", "dedup_key", "TEXT")
+        _ensure_column(con, "messages", "currency_values", "TEXT")
         _backfill_dedup_keys(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id)")
@@ -161,6 +163,27 @@ def init_db():
         )''')
         con.execute("CREATE INDEX IF NOT EXISTS idx_sender_directory_username ON sender_directory(sender_username)")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS lead_reviews (
+          message_id INTEGER PRIMARY KEY,
+          review_status TEXT NOT NULL DEFAULT 'unreviewed',
+          reviewed_category TEXT,
+          product TEXT,
+          brand TEXT,
+          model TEXT,
+          power TEXT,
+          capacity TEXT,
+          price TEXT,
+          currency TEXT,
+          location TEXT,
+          contact TEXT,
+          notes TEXT,
+          reviewed_by TEXT,
+          reviewed_at TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(message_id) REFERENCES messages(id)
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(review_status)")
+        con.execute('''
         CREATE TABLE IF NOT EXISTS crm_lead_outbox (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           message_id INTEGER NOT NULL,
@@ -173,4 +196,14 @@ def init_db():
           sent_at TEXT,
           FOREIGN KEY(message_id) REFERENCES messages(id)
         )''')
+        _ensure_column(con, "crm_lead_outbox", "attempts", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(con, "crm_lead_outbox", "last_attempt_at", "TEXT")
+        _ensure_column(con, "crm_lead_outbox", "next_retry_at", "TEXT")
+        _ensure_column(con, "crm_lead_outbox", "crm_lead_id", "TEXT")
+        _ensure_column(con, "crm_lead_outbox", "crm_status", "TEXT")
+        _ensure_column(con, "crm_lead_outbox", "crm_request_id", "TEXT")
+        _ensure_column(con, "crm_lead_outbox", "duplicate", "INTEGER")
+        _ensure_column(con, "crm_lead_outbox", "last_http_status", "INTEGER")
+        _ensure_column(con, "crm_lead_outbox", "receipt", "TEXT")
         con.execute("CREATE INDEX IF NOT EXISTS idx_crm_lead_outbox_status ON crm_lead_outbox(status)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_crm_lead_outbox_retry ON crm_lead_outbox(status,next_retry_at)")
