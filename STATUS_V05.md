@@ -1,24 +1,23 @@
 # SATNO Bale Market Intelligence v0.5 — Operational Status
 
-Status: **Production operational**
+Status: **Production operational; CRM Alpha 2.2 sender package ready for guarded install**
+
 Branch: `feature/staff-v05`
-Validated HEAD: `34d54b4dae1af644d38e5653bc2fc4e3a48142cd`
 
 ## Production state
 
+- Windows Server: `192.168.1.192`
 - Production path: `C:\Satno\SatnoBaleMarket-v05`
 - Web service: Uvicorn / FastAPI on port 8000
-- Login, Dashboard, Status and Admin Users pages verified
-- Windows validation suite passed: 63 tests
-- GitHub CI for the validated HEAD passed
+- Login, Dashboard, Status and Admin Users are operational
 - Scheduled Web and Sync tasks are configured
-- Previous v0.4 installation and backup remain available for rollback
+- Live Bale sync is operational
+- Previous v0.4 installation/backups remain available for rollback
+- Hourly development automation remains disabled
 
 ## Live Bale sync
 
-Live sync is operational.
-
-Most recent acceptance run:
+Last operator acceptance before the Alpha 2.2 readiness package:
 - Messages read: 114
 - Text messages: 62
 - New saved: 62
@@ -29,23 +28,105 @@ Most recent acceptance run:
 - Discovery mode: dialogs
 - Sync status: ok
 
-A registry fallback also exists for the case where Bale returns zero dialogs while active sources are known.
+A source-registry fallback is also available when Bale returns zero dialogs.
 
-## Staff security
+## Market intelligence
 
-- Passwords are PBKDF2-SHA256 hashes only
-- Session tokens are stored only as SHA-256 hashes
-- Roles: admin / sales / viewer
-- Dashboard and data APIs require authentication
-- User management is admin-only
-- Last active admin cannot be disabled or demoted
-- `.env.local`, Bale token, CRM token and SQLite runtime databases are not intended for Git tracking
+The system separates:
+- supplier / seller;
+- stock / availability / sale;
+- buyer demand;
+- inquiry / project;
+- other.
 
-## CRM
+Reviewable extraction includes:
+- product type;
+- brand;
+- model;
+- power;
+- capacity;
+- price text;
+- detected currency unit;
+- location;
+- contact.
 
-Lead export uses contract `satno.lead.v1` and an idempotent outbox.
-If the actual SATNO CRM endpoint is not configured, Leads remain safely queued.
+Search, filters, sender provenance and message provenance are retained.
 
-## Operating rule
+## Human lead review
 
-Hourly development automation is disabled. From this point, changes should be maintenance or approved feature work only, with validation before production changes.
+New operational workflow:
+1. message is collected and classified;
+2. extracted fields remain editable/reviewable;
+3. staff records review status and notes;
+4. only a `selected` record can enter the local CRM outbox;
+5. queueing alone never creates CRM Company, Contact, Deal or Project rows.
+
+Pages:
+- `/review`
+- `/crm/outbox`
+
+## Bale source management
+
+Administrators can manually:
+- add a source;
+- edit title/score/matched terms;
+- enable or disable;
+- delete a source.
+
+Page: `/sources/manage`
+
+Deleting a source does not erase historical collected messages.
+
+## CRM Alpha 2.2 sender preparation
+
+The old `satno.lead.v1` body is superseded.
+
+The adapter now follows the CRM `ingest_leads` acceptance contract:
+- `POST application/json`;
+- `x-satno-connector: bale_market`;
+- dedicated server-only Bearer token;
+- stable string `source_record_id`;
+- `title`;
+- timezone-aware `captured_at`;
+- quarantined `raw_payload`;
+- only contract-approved optional normalized fields.
+
+The local outbox is migrated in place. Existing queued rows are preserved.
+Legacy unsent payloads are refreshed only when explicitly re-queued.
+
+Delivery success requires a validated CRM receipt containing:
+- CRM Lead ID;
+- source = `bale_market`;
+- matching source_record_id;
+- CRM status;
+- created_at;
+- duplicate flag;
+- request_id.
+
+HTTP 200/201 without a valid receipt is not considered success.
+
+Retry is bounded and connection/error state is visible in `/crm/outbox`.
+
+## Current CRM gate
+
+Live CRM delivery is intentionally **disabled** for CRM Alpha 2.1.
+
+Keep:
+- `SATNO_CRM_LEAD_URL=`
+- `SATNO_BALE_MARKET_INGEST_TOKEN` server-only and unset until the approved Alpha 2.2 acceptance window.
+
+The Alpha 2.2 package does not deploy or modify SATNO CRM.
+
+## Package documents
+
+- `docs/CRM_ALPHA22_READINESS.md`
+- `docs/TEST_REPORT_ALPHA22.md`
+- `docs/sample-bale-lead-alpha22.json`
+- `scripts/install-alpha22-readiness-windows.ps1`
+- `scripts/rollback-alpha22-readiness-windows.ps1`
+- `scripts/test-crm-adapter-windows.ps1`
+
+## Service isolation
+
+The install/rollback package is scoped to SATNO Bale Market only.
+Farsicom, VoIP, DNS and unrelated services are outside its actions.
