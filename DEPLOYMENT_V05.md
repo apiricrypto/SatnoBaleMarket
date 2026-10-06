@@ -1,87 +1,117 @@
-# SATNO Bale Market Intelligence v0.5 Staff Edition
+# SATNO Bale Market Intelligence v0.5 — Windows Production
 
-## Scope
-This branch is for isolated validation of v0.5. Do not replace the production v0.4 service or merge into `feature/classifier-v03` without explicit approval.
+## Current production
 
-## Windows Server isolated test
+- Server: `192.168.1.192`
+- Path: `C:\Satno\SatnoBaleMarket-v05`
+- Port: `8000`
+- Web task: `SATNO-BaleMarket-v05-Web`
+- Sync task: `SATNO-BaleMarket-v05-Sync`
 
-Production v0.4 is expected to remain on port 8000. Test v0.5 on port 8005.
+This document applies only to SATNO Bale Market. Do not stop, reconfigure or restart Farsicom, VoIP, DNS or unrelated services.
+
+## Alpha 2.2 readiness install
+
+CRM Alpha 2.1 must remain disconnected. Before installation, `SATNO_CRM_LEAD_URL` must be empty.
+
+Run PowerShell as Administrator:
 
 ```powershell
-cd C:\Satno
-git clone https://github.com/apiricrypto/SatnoBaleMarket.git SatnoBaleMarket-v05-test
-cd C:\Satno\SatnoBaleMarket-v05-test
-git checkout feature/staff-v05
-
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-
-Copy-Item .env.example .env.local
+cd C:\Satno\SatnoBaleMarket-v05
+.\scripts\install-alpha22-readiness-windows.ps1
 ```
 
-Edit only `.env.local` on the server. Never commit it.
+The installer:
+1. requires a clean Git working tree;
+2. refuses to proceed if a live CRM URL is configured;
+3. records the current Git HEAD;
+4. takes a SQLite online backup;
+5. privately backs up `.env.local`;
+6. fast-forwards `feature/staff-v05`;
+7. installs declared Python dependencies;
+8. runs the additive SQLite schema initializer;
+9. runs compile/unit/regression/secret/branch validation;
+10. runs the loopback mock CRM adapter acceptance;
+11. restarts only the two Bale Market scheduled tasks;
+12. verifies `http://127.0.0.1:8000/health`.
 
-For isolated testing, use a separate database path:
+The script prints a backup directory similar to:
+
 ```
-DATABASE_PATH=C:\Satno\data\satno_market_v05_test.db
-SESSION_COOKIE_SECURE=0
+C:\Satno\backup\bale-market-alpha22-YYYYMMDD-HHMMSS
 ```
 
-Create the first admin interactively:
+Keep that path until the package is accepted.
+
+## Post-install checks
+
 ```powershell
-.\.venv\Scripts\python.exe create_staff_user.py admin --role admin --name "SATNO Admin"
-```
-
-Run tests:
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-Start v0.5 on a separate port:
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8005
-```
-
-Health check:
-```powershell
-Invoke-RestMethod http://127.0.0.1:8005/health
+Invoke-RestMethod http://127.0.0.1:8000/health
+Get-ScheduledTaskInfo -TaskName "SATNO-BaleMarket-v05-Web"
+Get-ScheduledTaskInfo -TaskName "SATNO-BaleMarket-v05-Sync"
 ```
 
 Open:
-- http://127.0.0.1:8005/login
-- http://127.0.0.1:8005/status
+- `http://127.0.0.1:8000/`
+- `http://127.0.0.1:8000/review`
+- `http://127.0.0.1:8000/sources/manage`
+- `http://127.0.0.1:8000/crm/outbox`
+- `http://127.0.0.1:8000/status`
 
-## Security requirements
-- Passwords are stored only as PBKDF2-SHA256 hashes with unique salts.
-- Browser session tokens are random; only SHA-256 token hashes are stored in SQLite.
-- Session cookie is HttpOnly and SameSite=Strict.
-- For HTTPS production set `SESSION_COOKIE_SECURE=1`.
-- `BALE_TOKEN`, `SATNO_CRM_API_TOKEN`, `.env.local`, session files and SQLite databases must remain server-side.
-- Do not expose SQLite or environment files under a web root.
+Expected CRM readiness during Alpha 2.1:
+- URL configured: no
+- token configured: no, unless a server-only token has been staged intentionally
+- live delivery: disabled
+- existing outbox rows preserved
 
-## RBAC
-- viewer: read dashboard, messages, source/sync status.
-- sales: viewer permissions + send Lead to SATNO CRM.
-- admin: sales permissions + message write + staff user management.
+## Mock CRM acceptance
 
-## CRM behavior
-`POST /api/leads/{message_id}/send` creates an idempotent `satno.lead.v1` payload and stores it in `crm_lead_outbox`.
+Run independently at any time:
 
-If `SATNO_CRM_LEAD_URL` is empty, the Lead stays queued safely. When the endpoint is configured, the same API attempts server-side delivery. The CRM token is never sent to the browser.
+```powershell
+.\scripts\test-crm-adapter-windows.ps1
+```
 
-## Production readiness checklist
-1. All unit/regression tests pass on the Windows Server v0.5 test checkout.
-2. Login, logout, expiry and role restrictions verified manually.
-3. viewer cannot call write/admin/Lead endpoints.
-4. sales can send Leads but cannot manage users.
-5. admin can manage users; last active admin cannot be disabled/demoted.
-6. Source/Sync status page reflects real data.
-7. Sender resolution cache works during a Bale sync.
-8. CRM integration tested against the actual SATNO CRM endpoint, or deliberately left in queue-only mode.
-9. HTTPS is available and `SESSION_COOKIE_SECURE=1`.
-10. Backup current production database and service configuration.
-11. Only after explicit approval: deploy v0.5 and configure `market.satnoco.ir`.
+This starts only a loopback receiver on port 8099 with a synthetic in-process token and a temporary SQLite database. It does not contact SATNO CRM.
+
+Expected output includes:
+- valid first receipt;
+- duplicate retry with same CRM Lead identity;
+- no secret or raw payload printed.
 
 ## Rollback
-v0.5 must be deployed separately from v0.4 until acceptance. If a v0.5 validation fails, stop only the v0.5 process and keep the v0.4 service/branch untouched.
+
+Use the backup path printed by the installer:
+
+```powershell
+.\scripts\rollback-alpha22-readiness-windows.ps1 -BackupPath "C:\Satno\backup\bale-market-alpha22-YYYYMMDD-HHMMSS"
+```
+
+Rollback:
+- stops only Bale Market scheduled tasks;
+- checks out the recorded previous code HEAD;
+- restores the previous SQLite database;
+- restores the private `.env.local`;
+- restarts Bale Market Web;
+- verifies health.
+
+It does not touch CRM, Farsicom, VoIP or other services.
+
+## CRM Alpha 2.2 activation
+
+Do not configure live delivery until the CRM team explicitly provides:
+- deployed HTTPS `ingest_leads` endpoint;
+- dedicated `SATNO_BALE_MARKET_INGEST_TOKEN` of at least 32 characters;
+- disposable acceptance window.
+
+Then set only on the server:
+
+```
+SATNO_CRM_LEAD_URL=https://<approved-host>/functions/v1/ingest_leads
+SATNO_BALE_MARKET_INGEST_TOKEN=<server-only secret>
+SATNO_CRM_MAX_ATTEMPTS=3
+```
+
+Never place the token in Git, browser configuration, screenshots, logs or chat.
+
+The first live Alpha 2.2 acceptance must prove that ingestion creates only a quarantined Lead Inbox record and does not automatically create Company, Contact, Deal, Project, finance, procurement or inventory records.
