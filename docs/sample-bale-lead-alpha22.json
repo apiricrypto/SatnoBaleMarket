@@ -1,0 +1,54 @@
+{
+  "source_record_id": "bale:6d2f6a2ce6fd7b8d1d6b22f722e458dc9f2f24aa69fe4c5cbb8f6b3083136711",
+  "title": "استعلام آزمایشی اینورتر سه‌فاز 80 کیلووات",
+  "captured_at": "2026-10-06T15:30:00Z",
+  "description": "نمونه مصنوعی برای آزمون قرارداد ingest_leads؛ داده واقعی مشتری نیست.",
+  "contact_name": "تأمین‌کننده آزمایشی",
+  "contact_phone": "09120000000",
+  "city": "اهواز",
+  "priority": "high",
+  "estimated_amount": 1500000000,
+  "estimated_currency": "IRR",
+  "raw_payload": {
+    "provider": "bale",
+    "message": {
+      "external_id": "synthetic-1001",
+      "chat_name": "بازار آزمایشی سولار",
+      "sender_id": "9001",
+      "sender_name": "تأمین‌کننده آزمایشی",
+      "sender_username": null,
+      "sender_link": null,
+      "text": "استعلام آزمایشی اینورتر سه‌فاز 80 کیلووات در اهواز",
+      "sent_at": "2026-10-06T15:30:00Z"
+    },
+    "extracted": {
+      "category": "inquiry_project",
+      "brands": ["deye"],
+      "product_types": ["inverter"],
+      "models": ["SUN-80K"],
+      "power_values": ["80kw"],
+      "capacity_values": [],
+      "price_values": [],
+      "currency_values": [],
+      "quantities": [],
+      "phones": ["09120000000"],
+      "locations": ["اهواز"]
+    },
+    "review": {
+      "status": "selected",
+      "category": "inquiry_project",
+      "product": "inverter",
+      "brand": "deye",
+      "model": "SUN-80K",
+      "power": "80kw",
+      "capacity": null,
+      "price": null,
+      "currency": null,
+      "location": "اهواز",
+      "contact": "09120000000",
+      "notes": "نمونه مصنوعی پذیرش آلفا 2.2",
+      "reviewed_by": "acceptance",
+      "reviewed_at": "2026-10-06T15:35:00Z"
+    }
+  }
+}
