@@ -10,10 +10,12 @@ from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
 from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user
-from crm_connector import send_queued_lead
+from crm_connector import queue_lead
+from operations_routes import router as operations_router
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.0")
+app.include_router(operations_router)
 
 SESSION_COOKIE_NAME = "satno_staff_session"
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
@@ -79,12 +81,12 @@ def save_message(m: MessageIn):
     with connect() as con:
         cur = con.execute("""
         INSERT OR IGNORE INTO messages
-        (external_id,chat_name,sender_name,sender_id,sender_username,sender_link,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,quantities,phones,locations,dedup_key)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        (external_id,chat_name,sender_name,sender_id,sender_username,sender_link,text,sent_at,category,brands,product_types,models,power_values,energy_values,price_values,currency_values,quantities,phones,locations,dedup_key)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             m.external_id,m.chat_name,m.sender_name,m.sender_id,m.sender_username,m.sender_link,m.text,m.sent_at,a["category"],
             dumps(a["brands"]),dumps(a["product_types"]),dumps(a["models"]),
-            dumps(a["power_values"]),dumps(a["energy_values"]),dumps(a["price_values"]),
+            dumps(a["power_values"]),dumps(a["energy_values"]),dumps(a["price_values"]),dumps(a["currency_values"]),
             dumps(a["quantities"]),dumps(a["phones"]),dumps(a["locations"]),dedup_key
         ))
         inserted_id = cur.lastrowid if cur.rowcount == 1 else None
@@ -233,7 +235,7 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     sql = "SELECT * FROM messages WHERE 1=1"
     args=[]
     if q:
-        searchable = "LOWER(COALESCE(text,'') || ' ' || COALESCE(chat_name,'') || ' ' || COALESCE(sender_name,'') || ' ' || COALESCE(sender_username,'') || ' ' || COALESCE(brands,'') || ' ' || COALESCE(product_types,'') || ' ' || COALESCE(models,'') || ' ' || COALESCE(power_values,'') || ' ' || COALESCE(energy_values,'') || ' ' || COALESCE(price_values,'') || ' ' || COALESCE(quantities,'') || ' ' || COALESCE(locations,''))"
+        searchable = "LOWER(COALESCE(text,'') || ' ' || COALESCE(chat_name,'') || ' ' || COALESCE(sender_name,'') || ' ' || COALESCE(sender_username,'') || ' ' || COALESCE(brands,'') || ' ' || COALESCE(product_types,'') || ' ' || COALESCE(models,'') || ' ' || COALESCE(power_values,'') || ' ' || COALESCE(energy_values,'') || ' ' || COALESCE(price_values,'') || ' ' || COALESCE(currency_values,'') || ' ' || COALESCE(quantities,'') || ' ' || COALESCE(locations,''))"
         for variants in query_terms(q):
             sql += " AND (" + " OR ".join([searchable + " LIKE ?" for _ in variants]) + ")"
             args.extend([f"%{v}%" for v in variants])
@@ -268,7 +270,7 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
         rows.sort(key=lambda r: (message_search_score(r, q), r.get("id") or 0), reverse=True)
     rows=rows[:limit]
     for r in rows:
-        for k in ["brands","product_types","models","power_values","energy_values","price_values","quantities","phones","locations"]:
+        for k in ["brands","product_types","models","power_values","energy_values","price_values","currency_values","quantities","phones","locations"]:
             try: r[k]=json.loads(r[k] or "[]")
             except Exception: r[k]=[]
         r["sent_at_display"] = format_tehran_jalali(r.get("sent_at") or r.get("created_at"))
@@ -351,13 +353,17 @@ load();
 
 @app.post("/api/leads/{message_id}/send")
 def send_lead(message_id: int, user=Depends(require_lead_send)):
+    """Deprecated compatibility endpoint: review-selected leads are queued only.
+
+    Actual delivery is an explicit server-side outbox action, so CRM Alpha 2.1
+    cannot be contacted accidentally while sender conformance is being prepared.
+    """
     try:
-        result = send_queued_lead(message_id, user["username"])
+        outbox = queue_lead(message_id, user["username"], require_selected=True)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    if result.get("status") == "failed":
-        raise HTTPException(status_code=502, detail=result)
-    return result
+        status = 404 if str(exc) == "message not found" else 400
+        raise HTTPException(status_code=status, detail=str(exc))
+    return {"status": "queued", "outbox_id": outbox["id"], "delivery": "not_attempted"}
 
 @app.get("/api/stats")
 def stats(user=Depends(require_read)):
@@ -389,7 +395,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <a href="/admin/users">مدیریت کاربران</a> • <button id="logoutBtn" type="button">خروج</button></div>
+<div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <a href="/review">بررسی سرنخ‌ها</a> • <a href="/sources/manage">مدیریت منابع</a> • <a href="/crm/outbox">صف CRM</a> • <a href="/admin/users">مدیریت کاربران</a> • <button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar">
 <input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
@@ -439,7 +445,7 @@ async function load(){
    const s=await sr.json(), rows=await rr.json();
    const ls=s.last_sync; const syncText=ls?(' | آخرین Sync: '+(ls.finished_at||ls.started_at)+' | جدید: '+ls.messages_saved):' | هنوز Sync ثبت نشده'; const sourceText=' | منابع فعال: '+s.active_sources+' | History: '+s.history_scanned;
    document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج: '+rows.length+sourceText+syncText;
-   list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' <button type="button" class="leadBtn" onclick="sendLead('+r.id+',this)">ارسال Lead به CRM</button></div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+' <a class="leadBtn" href="/review?message_id='+r.id+'">بررسی و انتخاب سرنخ</a></div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');document.getElementById('cat').value='';load();}
