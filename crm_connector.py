@@ -9,6 +9,10 @@ from db import connect, init_db
 
 CONNECTOR_NAME = "bale_market"
 DEFAULT_MAX_ATTEMPTS = 3
+MAX_RAW_PAYLOAD_BYTES = 64 * 1024
+MAX_REQUEST_BYTES = 128 * 1024
+MAX_SAFE_INTEGER = 9_007_199_254_740_991
+ALLOWED_PRIORITIES = {"low", "normal", "high", "urgent"}
 
 
 class CRMConnectorError(RuntimeError):
@@ -65,6 +69,65 @@ def _review_for_message(message_id):
 
 def _first(values):
     return values[0] if values else None
+
+
+def validate_outbound_payload(payload):
+    required = ("source_record_id", "title", "captured_at", "raw_payload")
+    for field in required:
+        if field not in payload:
+            raise ValueError(f"{field} is required")
+    if not isinstance(payload["source_record_id"], str) or not payload["source_record_id"].strip():
+        raise ValueError("source_record_id must be text")
+    if len(payload["source_record_id"]) > 200:
+        raise ValueError("source_record_id is too long")
+    if not isinstance(payload["title"], str) or not payload["title"].strip():
+        raise ValueError("title is required")
+    if len(payload["title"]) > 500:
+        raise ValueError("title is too long")
+    if not isinstance(payload["raw_payload"], dict):
+        raise ValueError("raw_payload must be an object")
+    raw_bytes = len(json.dumps(payload["raw_payload"], ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    if raw_bytes > MAX_RAW_PAYLOAD_BYTES:
+        raise ValueError("raw_payload is too large")
+
+    captured = payload["captured_at"]
+    try:
+        dt = datetime.fromisoformat(captured.replace("Z", "+00:00"))
+    except Exception:
+        raise ValueError("captured_at must be an ISO timestamp with timezone") from None
+    if dt.tzinfo is None:
+        raise ValueError("captured_at must include timezone")
+    if dt.astimezone(timezone.utc) > datetime.now(timezone.utc) + timedelta(minutes=5):
+        raise ValueError("captured_at cannot be in the future")
+
+    priority = payload.get("priority", "normal")
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError("priority is invalid")
+
+    amount = payload.get("estimated_amount")
+    currency = payload.get("estimated_currency")
+    if (amount is None) != (currency is None):
+        raise ValueError("estimated_amount and estimated_currency must be paired")
+    if amount is not None:
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount < 0 or amount > MAX_SAFE_INTEGER:
+            raise ValueError("estimated_amount must be a non-negative safe integer")
+        if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha() or currency.upper() != currency:
+            raise ValueError("estimated_currency must be a three-letter uppercase code")
+
+    text_limits = {
+        "source_url": 2048, "organization_name": 500, "contact_name": 300,
+        "contact_phone": 64, "contact_email": 320, "province": 200, "city": 200,
+        "description": 10000, "deadline": 10,
+    }
+    for field, limit in text_limits.items():
+        value = payload.get(field)
+        if value is not None and (not isinstance(value, str) or len(value) > limit):
+            raise ValueError(f"{field} is invalid")
+
+    body_bytes = len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    if body_bytes > MAX_REQUEST_BYTES:
+        raise ValueError("request body is too large")
+    return payload
 
 
 def build_lead_payload(row, review=None):
@@ -159,7 +222,8 @@ def build_lead_payload(row, review=None):
         payload["estimated_amount"] = amount
         payload["estimated_currency"] = currency
 
-    return {key: value for key, value in payload.items() if value is not None}
+    payload = {key: value for key, value in payload.items() if value is not None}
+    return validate_outbound_payload(payload)
 
 
 def queue_lead(message_id, requested_by, require_selected=True):
