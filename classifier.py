@@ -148,6 +148,11 @@ def analyze(text: str):
             low,
         )
     ])
+    currency_values = []
+    if any(x in low for x in ("تومان", "تومن")):
+        currency_values.append("TOMAN")
+    if "ریال" in low:
+        currency_values.append("IRR")
     quantities = uniq(re.findall(r'\b\d+\s*(?:عدد|دستگاه|کارتن|پالت|پنل|باتری)\b', low))
     locations = uniq([x for x in LOCATIONS if _contains_phrase(low, x)])
     return {
@@ -158,6 +163,7 @@ def analyze(text: str):
         "power_values": power,
         "energy_values": energy,
         "price_values": prices,
+        "currency_values": uniq(currency_values),
         "quantities": quantities,
         "phones": phones,
         "locations": locations,
