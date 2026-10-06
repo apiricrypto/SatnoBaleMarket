@@ -34,3 +34,13 @@ jobs:
           DATABASE_PATH: /tmp/satno-market-ci.db
           SESSION_COOKIE_SECURE: "0"
         run: python -m unittest discover -s tests -v
+      - name: Mock CRM adapter acceptance
+        shell: bash
+        run: |
+          export SATNO_BALE_MARKET_INGEST_TOKEN="$(python -c 'print("x"*64)')"
+          export SATNO_CRM_LEAD_URL="http://127.0.0.1:8099/functions/v1/ingest_leads"
+          python tools/mock_crm_receiver.py >/tmp/satno-mock-crm.log 2>&1 &
+          MOCK_PID=$!
+          trap 'kill "$MOCK_PID" 2>/dev/null || true' EXIT
+          sleep 1
+          python tools/crm_adapter_acceptance.py
