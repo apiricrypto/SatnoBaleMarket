@@ -5,7 +5,11 @@ from datetime import datetime, timedelta, timezone
 from urllib import request as urllib_request
 from urllib.error import URLError, HTTPError
 
+from dotenv import load_dotenv
+
 from db import connect, init_db
+
+load_dotenv(".env.local")
 
 CONNECTOR_NAME = "bale_market"
 DEFAULT_MAX_ATTEMPTS = 3
