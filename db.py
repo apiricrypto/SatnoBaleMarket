@@ -174,6 +174,8 @@ def init_db():
           capacity TEXT,
           price TEXT,
           currency TEXT,
+          estimated_amount INTEGER,
+          estimated_currency TEXT,
           location TEXT,
           contact TEXT,
           notes TEXT,
@@ -182,6 +184,8 @@ def init_db():
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(message_id) REFERENCES messages(id)
         )''')
+        _ensure_column(con, "lead_reviews", "estimated_amount", "INTEGER")
+        _ensure_column(con, "lead_reviews", "estimated_currency", "TEXT")
         con.execute("CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(review_status)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS crm_lead_outbox (
