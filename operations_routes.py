@@ -1,6 +1,10 @@
 import json
+import os
 from typing import Optional
+from urllib.parse import urlparse
 
+from bale import BaleClient
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
@@ -10,6 +14,8 @@ from crm_connector import process_outbox, queue_lead, send_outbox_item
 from db import connect
 from lead_review import save_review
 from source_registry import add_source, delete_source, update_source
+
+load_dotenv(".env.local")
 
 router = APIRouter()
 SESSION_COOKIE_NAME = "satno_staff_session"
@@ -162,6 +168,90 @@ def crm_process(limit: int = 10, user=Depends(require_admin)):
     return {"results": process_outbox(limit=max(1, min(int(limit), 50)))}
 
 
+@router.get("/api/sources/discover")
+async def source_discover(q: str, user=Depends(require_admin)):
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="نام یا آدرس کانال/گروه را وارد کنید")
+    token = (os.getenv("BALE_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=503, detail="BALE_TOKEN روی سرور تنظیم نیست")
+
+    parsed = urlparse(query if "://" in query else "")
+    if parsed.netloc.lower() in {"ble.ir", "www.ble.ir"}:
+        query = parsed.path.strip("/").split("/", 1)[0] or query
+    query = query.lstrip("@").strip()
+
+    results = []
+    try:
+        async with BaleClient(token) as client:
+            # Public username/link: verify exact username first.
+            if query and " " not in query:
+                try:
+                    info = await client.resolve(query)
+                    full = await client.get_full(info.peer)
+                    results.append({
+                        "peer_type": full.peer.type,
+                        "peer_id": full.peer.id,
+                        "title": full.title or query,
+                        "username": full.username,
+                        "members_count": full.members_count,
+                        "match": "username",
+                    })
+                except Exception:
+                    pass
+
+            # Human-friendly title/name search. Do not auto-add a fuzzy match;
+            # return candidates so the operator explicitly chooses.
+            candidates = await client.resolver.search_peer(query, kind="channel", limit=10)
+            for candidate in candidates:
+                full = candidate
+                try:
+                    full = await client.get_full(candidate.peer)
+                except Exception:
+                    pass
+                item = {
+                    "peer_type": full.peer.type,
+                    "peer_id": full.peer.id,
+                    "title": full.title or candidate.title or query,
+                    "username": getattr(full, "username", None),
+                    "members_count": getattr(full, "members_count", None),
+                    "match": "title",
+                }
+                if not any(
+                    x["peer_type"] == item["peer_type"] and x["peer_id"] == item["peer_id"]
+                    for x in results
+                ):
+                    results.append(item)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"جستجوی بله ناموفق بود: {type(exc).__name__}",
+        )
+
+    return {"query": query, "results": results[:10]}
+
+
+@router.patch("/api/sources/item/{peer_type}/{peer_id}")
+def source_update_by_peer(peer_type: int, peer_id: int, payload: SourceUpdate, user=Depends(require_admin)):
+    source_key = f"bale:{peer_type}:{peer_id}"
+    try:
+        return update_source(source_key, **payload.model_dump())
+    except ValueError as exc:
+        status = 404 if str(exc) == "source not found" else 400
+        raise HTTPException(status_code=status, detail=str(exc))
+
+
+@router.delete("/api/sources/item/{peer_type}/{peer_id}", status_code=204)
+def source_delete_by_peer(peer_type: int, peer_id: int, user=Depends(require_admin)):
+    source_key = f"bale:{peer_type}:{peer_id}"
+    try:
+        delete_source(source_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return None
+
+
 @router.post("/api/sources")
 def source_create(payload: SourceCreate, user=Depends(require_admin)):
     try:
@@ -215,7 +305,79 @@ def sources_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     if not role_allows(user["role"], "users:manage"):
         raise HTTPException(status_code=403, detail="forbidden")
-    return HTMLResponse("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>مدیریت منابع بله</title><style>body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0}.wrap{max-width:1200px;margin:auto;padding:20px}.card{background:white;padding:14px;border:1px solid #e6eaf0;border-radius:12px;margin:10px 0}input,button{padding:8px;margin:2px;border:1px solid #ddd;border-radius:7px}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #eee;text-align:right}</style></head><body><div class="wrap"><p><a href="/">← داشبورد</a></p><h2>منابع شناسایی‌شده بله</h2><form id="add" class="card"><input id="pt" type="number" value="2" placeholder="peer type"><input id="pid" type="number" placeholder="peer id" required><input id="title" placeholder="عنوان"><input id="score" type="number" value="0" placeholder="امتیاز"><input id="terms" placeholder="کلیدواژه‌ها"><button>افزودن دستی</button></form><div class="card"><table><thead><tr><th>کلید</th><th>عنوان</th><th>امتیاز</th><th>فعال</th><th>کلیدواژه</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div></div><script>function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML}async function load(){var r=await fetch('/api/sources'),a=await r.json(),h='';a.forEach(function(x){h+='<tr data-k="'+esc(x.source_key)+'"><td>'+esc(x.source_key)+'</td><td><input class="t" value="'+esc(x.title||'')+'"></td><td><input class="s" type="number" value="'+esc(x.score||0)+'"></td><td><input class="a" type="checkbox" '+(x.enabled?'checked':'')+'></td><td><input class="m" value="'+esc(x.matched_terms||'')+'"></td><td><button onclick="saveRow(this)">ذخیره</button><button onclick="delRow(this)">حذف</button></td></tr>'});rows.innerHTML=h}async function saveRow(b){var tr=b.closest('tr'),k=tr.dataset.k;await fetch('/api/sources/'+encodeURIComponent(k),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:tr.querySelector('.t').value,score:Number(tr.querySelector('.s').value),enabled:tr.querySelector('.a').checked,matched_terms:tr.querySelector('.m').value})});load()}async function delRow(b){if(!confirm('منبع حذف شود؟'))return;var tr=b.closest('tr');await fetch('/api/sources/'+encodeURIComponent(tr.dataset.k),{method:'DELETE'});load()}add.onsubmit=async function(ev){ev.preventDefault();var r=await fetch('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:Number(pt.value),peer_id:Number(pid.value),title:title.value||null,score:Number(score.value||0),matched_terms:terms.value||null,enabled:true})});if(!r.ok)alert((await r.json()).detail||'خطا');else{ev.target.reset();pt.value=2;score.value=0;load()}};load();</script></body></html>""")
+    return HTMLResponse("""<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مدیریت منابع بله | SATNO</title>
+<style>
+body{font-family:system-ui,Tahoma;background:#f4f7fb;margin:0;color:#17212f}
+.wrap{max-width:1180px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 4px 14px #0f172a0a}
+.searchbox{display:grid;grid-template-columns:1fr auto;gap:8px}.searchbox input{font-size:15px}
+input,button{box-sizing:border-box;padding:10px;border:1px solid #cfd8e3;border-radius:9px;background:#fff}
+button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5c}.danger{color:#b42318}.muted{color:#667085;font-size:13px}
+.results{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:10px}.candidate{border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+.source{display:grid;grid-template-columns:minmax(220px,2fr) 130px 110px 130px minmax(180px,1fr) auto;gap:8px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0}
+.source:first-child{border-top:0}.scorebox{display:flex;align-items:center;gap:4px}.scorebox input{width:68px;text-align:center}.scorebox button{padding:8px}.status{font-size:13px}.ok{color:#067647}.err{color:#b42318}
+@media(max-width:900px){.source{grid-template-columns:1fr}.searchbox{grid-template-columns:1fr}.source button{width:100%}}
+</style></head>
+<body><div class="wrap">
+<div class="top"><div><h2>مدیریت منابع بله</h2><div class="muted">منبع را با نام کانال/گروه، @username یا لینک ble.ir پیدا کنید؛ سپس خودتان نتیجه صحیح را اضافه کنید.</div></div><a href="/">← داشبورد</a></div>
+
+<div class="card">
+<h3>افزودن منبع جدید</h3>
+<div class="searchbox"><input id="discoverQ" placeholder="مثال: بازار انرژی خورشیدی یا @channelname یا https://ble.ir/channelname"><button class="primary" onclick="discover()">جستجو در بله</button></div>
+<div id="discoverMsg" class="muted"></div><div id="discoverResults" class="results"></div>
+<details style="margin-top:12px"><summary>افزودن با Peer ID (حالت فنی)</summary>
+<form id="manual" style="margin-top:8px"><input id="pt" type="number" value="2" placeholder="Peer type"><input id="pid" type="number" placeholder="Peer ID" required><input id="manualTitle" placeholder="عنوان"><input id="manualScore" type="number" value="50" placeholder="امتیاز"><button>افزودن</button></form>
+</details>
+</div>
+
+<div class="card"><div class="top"><h3>منابع ثبت‌شده</h3><button onclick="loadSources()">↻ تازه‌سازی</button></div>
+<div class="muted">امتیاز، اولویت Sync است. عدد بالاتر یعنی منبع زودتر اسکن می‌شود. پیشنهاد: عادی 50، مهم 80، خیلی مهم 100.</div>
+<div id="sourceMsg" class="status"></div><div id="sources"></div></div>
+</div>
+<script>
+function esc(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML}
+async function api(url,opt){const r=await fetch(url,opt);let d=null;try{d=await r.json()}catch(e){}if(!r.ok)throw new Error((d&&d.detail)||('HTTP '+r.status));return d}
+async function discover(){
+ discoverMsg.textContent='در حال جستجو...';discoverResults.innerHTML='';
+ try{
+  const d=await api('/api/sources/discover?q='+encodeURIComponent(discoverQ.value.trim()));
+  discoverMsg.textContent=d.results.length?('نتایج: '+d.results.length):'نتیجه‌ای پیدا نشد. نام یا @username را دقیق‌تر وارد کنید.';
+  discoverResults.innerHTML=d.results.map(x=>'<div class="candidate"><strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.members_count?' • '+esc(x.members_count)+' عضو':'')+'</div><button class="primary" onclick=\'addCandidate('+JSON.stringify(x)+')\'>افزودن این منبع</button></div>').join('');
+ }catch(e){discoverMsg.textContent=e.message;discoverMsg.className='err'}
+}
+async function addCandidate(x){
+ try{
+  await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:x.peer_type,peer_id:x.peer_id,title:x.title||x.username||null,score:50,matched_terms:null,enabled:true})});
+  discoverMsg.textContent='منبع اضافه شد.';discoverMsg.className='ok';loadSources();
+ }catch(e){discoverMsg.textContent=e.message;discoverMsg.className='err'}
+}
+async function loadSources(){
+ sourceMsg.textContent='در حال بارگذاری...';
+ try{
+  const a=await api('/api/sources');
+  sources.innerHTML=a.map(x=>'<div class="source" data-pt="'+esc(x.peer_type)+'" data-pid="'+esc(x.peer_id)+'"><div><input class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div><div class="scorebox"><button onclick="bump(this,-10)">−10</button><input class="score" type="number" value="'+esc(x.score||0)+'"><button onclick="bump(this,10)">+10</button></div><label><input class="enabled" type="checkbox" '+(x.enabled?'checked':'')+'> فعال</label><input class="terms" value="'+esc(x.matched_terms||'')+'" placeholder="کلیدواژه‌ها"><div class="muted">آخرین مشاهده: '+esc(x.last_seen_at||'-')+'</div><div><button class="primary" onclick="saveSource(this)">ذخیره</button> <button class="danger" onclick="deleteSource(this)">حذف</button></div></div>').join('');
+  sourceMsg.textContent=a.length+' منبع';sourceMsg.className='status ok';
+ }catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}
+}
+function bump(btn,n){const row=btn.closest('.source'),i=row.querySelector('.score');i.value=Math.max(0,Number(i.value||0)+n)}
+async function saveSource(btn){
+ const row=btn.closest('.source'),pt=row.dataset.pt,pid=row.dataset.pid;
+ try{
+  await api('/api/sources/item/'+pt+'/'+pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:row.querySelector('.title').value.trim(),score:Number(row.querySelector('.score').value||0),enabled:row.querySelector('.enabled').checked,matched_terms:row.querySelector('.terms').value.trim()||null})});
+  sourceMsg.textContent='تغییرات ذخیره شد.';sourceMsg.className='status ok';loadSources();
+ }catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}
+}
+async function deleteSource(btn){
+ if(!confirm('این منبع از فهرست Sync حذف شود؟ پیام‌های تاریخی حذف نمی‌شوند.'))return;
+ const row=btn.closest('.source'),pt=row.dataset.pt,pid=row.dataset.pid;
+ try{await fetch('/api/sources/item/'+pt+'/'+pid,{method:'DELETE'});loadSources()}catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}
+}
+manual.onsubmit=async ev=>{ev.preventDefault();try{await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:Number(pt.value),peer_id:Number(pid.value),title:manualTitle.value||null,score:Number(manualScore.value||50),matched_terms:null,enabled:true})});ev.target.reset();pt.value=2;manualScore.value=50;loadSources()}catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}};
+discoverQ.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover()}});
+loadSources();
+</script></body></html>""")
 
 
 @router.get("/crm/outbox", response_class=HTMLResponse)
