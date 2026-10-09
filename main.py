@@ -234,11 +234,6 @@ def create_message(m: MessageIn, user=Depends(require_message_write)):
 def list_messages(q: str = "", category: str = "", sender_id: str = "", date_from: str = "", date_to: str = "", limit: int = Query(100, ge=1, le=500), user=Depends(require_read)):
     sql = "SELECT * FROM messages WHERE 1=1"
     args=[]
-    if q:
-        searchable = "LOWER(COALESCE(text,'') || ' ' || COALESCE(chat_name,'') || ' ' || COALESCE(sender_name,'') || ' ' || COALESCE(sender_username,'') || ' ' || COALESCE(brands,'') || ' ' || COALESCE(product_types,'') || ' ' || COALESCE(models,'') || ' ' || COALESCE(power_values,'') || ' ' || COALESCE(energy_values,'') || ' ' || COALESCE(price_values,'') || ' ' || COALESCE(currency_values,'') || ' ' || COALESCE(quantities,'') || ' ' || COALESCE(locations,''))"
-        for variants in query_terms(q):
-            sql += " AND (" + " OR ".join([searchable + " LIKE ?" for _ in variants]) + ")"
-            args.extend([f"%{v}%" for v in variants])
     if category:
         sql += " AND category=?"; args.append(category)
     if sender_id:
@@ -267,7 +262,13 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
             filtered.append(r)
         rows=filtered
     if q:
-        rows.sort(key=lambda r: (message_search_score(r, q), r.get("id") or 0), reverse=True)
+        scored=[]
+        for r in rows:
+            score=message_search_score(r, q)
+            if score > 0:
+                r["search_score"]=score
+                scored.append(r)
+        rows=sorted(scored, key=lambda r: (r.get("search_score",0), r.get("id") or 0), reverse=True)
     rows=rows[:limit]
     for r in rows:
         for k in ["brands","product_types","models","power_values","energy_values","price_values","currency_values","quantities","phones","locations"]:
@@ -398,7 +399,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 <div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <a href="/review">بررسی سرنخ‌ها</a> • <a href="/sources/manage">مدیریت منابع</a> • <a href="/crm/outbox">صف CRM</a> • <a href="/admin/users">مدیریت کاربران</a> • <button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
 <div class="bar">
-<input id="q" placeholder="جستجو: برند، محصول، شهر، متن...">
+<input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
 <select id="cat"><option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option><option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select>
 <input id="sender" placeholder="ID خریدار/فروشنده">
 <div class="datebox"><input id="from" inputmode="numeric" placeholder="از تاریخ"><button type="button" class="calBtn" data-target="from">📅</button></div>
@@ -406,7 +407,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 <button id="searchBtn" type="button">جستجو</button>
 <button id="clearBtn" type="button">پاک‌کردن</button>
 </div>
-<div class="hint">تاریخ را به صورت شمسی وارد کنید؛ مثال: ۱۴۰۵/۰۷/۰۸</div>
+<div class="hint">می‌توانید نام کامل محصول/متن پیام را Paste کنید. جستجو تفاوت نیم‌فاصله، اعداد فارسی/انگلیسی و خط تیره مدل‌ها را نادیده می‌گیرد. تاریخ شمسی نمونه: ۱۴۰۵/۰۷/۰۸</div>
 <div id="list"></div></div>
 <div id="picker" class="picker"><div class="pickerBox"><div class="pickerHead"><button id="nextMonth">◀</button><strong id="pickerTitle"></strong><button id="prevMonth">▶</button></div><div class="days" id="pickerDays"></div><button id="pickerClose" type="button">بستن</button></div></div>
 <script>
