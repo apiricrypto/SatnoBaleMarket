@@ -153,7 +153,11 @@ async def main():
     async with BaleClient(token) as client:
         selected = []
         with connect() as con:
-            registry_keys={r[0] for r in con.execute("SELECT source_key FROM source_registry WHERE enabled=1").fetchall()}
+            registry_rows=con.execute(
+                "SELECT source_key,COALESCE(score,0) AS score FROM source_registry WHERE enabled=1"
+            ).fetchall()
+        registry_scores={r["source_key"]: int(r["score"] or 0) for r in registry_rows}
+        registry_keys=set(registry_scores)
         registry_count = len(registry_keys)
 
         async for dialog in client.iter_dialogs(
@@ -167,6 +171,17 @@ async def main():
             key = get_source_key(peer) if peer is not None else ""
             if key in registry_keys or any(keyword.lower() in title.lower() for keyword in KEYWORDS):
                 selected.append(dialog)
+
+        # Explicit source score is an operator-controlled priority. Registered
+        # sources always sort ahead of keyword-only discoveries; higher scores
+        # are scanned first when BALE_MAX_CHATS limits the run.
+        selected.sort(
+            key=lambda d: (
+                1 if get_source_key(getattr(d, "peer", None)) in registry_keys else 0,
+                registry_scores.get(get_source_key(getattr(d, "peer", None)), 0),
+            ),
+            reverse=True,
+        )
 
         if dialogs_seen == 0 and registry_count > 0:
             fallback = load_registry_targets()
