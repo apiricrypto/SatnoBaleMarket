@@ -386,19 +386,19 @@ def dashboard(request: Request):
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SATNO Bale Market Intelligence</title>
 <style>
-body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1200px;margin:auto;padding:20px}
-h1{font-size:24px}.sub{color:#667085}.bar{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto auto;gap:8px;margin:16px 0}
+body{font-family:system-ui,Tahoma;background:#f4f7fb;margin:0;color:#152235}.wrap{max-width:1220px;margin:auto;padding:22px}
+h1{font-size:26px;margin-bottom:5px}.sub{color:#667085}.nav{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.nav a,.nav button{padding:9px 12px;border:1px solid #dce3ec;border-radius:10px;background:#fff;color:#174b63;text-decoration:none}.nav a:hover{background:#eef7fb}.searchpanel{background:#fff;border:1px solid #e6eaf0;border-radius:16px;padding:14px;margin:14px 0}.bar{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto auto;gap:8px;margin:0}
 input,select,button{padding:11px;border:1px solid #d7dde7;border-radius:10px;background:white;min-width:0}
-button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
-.meta{font-size:12px;color:#667085}.tag{display:inline-block;background:#eef3f8;border-radius:20px;padding:3px 8px;margin:3px;font-size:12px}
-a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:-8px}
+button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 4px 14px #0f172a0a}
+.card p{line-height:1.8}.meta{font-size:12px;color:#667085}.tag{display:inline-block;background:#eef3f8;border-radius:20px;padding:3px 8px;margin:3px;font-size:12px}
+a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:8px}
 .datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="meta"><a href="/status">وضعیت منابع و Sync</a> • <a href="/review">بررسی سرنخ‌ها</a> • <a href="/sources/manage">مدیریت منابع</a> • <a href="/crm/outbox">صف CRM</a> • <a href="/admin/users">مدیریت کاربران</a> • <button id="logoutBtn" type="button">خروج</button></div>
+<div class="nav"><a href="/review">✓ بررسی سرنخ‌ها</a><a href="/sources/manage">☰ مدیریت منابع</a><a href="/status">↻ وضعیت Sync</a><a href="/crm/outbox">⇢ صف CRM</a><a href="/admin/users">⚙ کاربران</a><button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="stats">در حال بارگذاری...</div>
-<div class="bar">
+<div class="searchpanel"><div class="bar">
 <input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
 <select id="cat"><option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option><option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select>
 <input id="sender" placeholder="ID خریدار/فروشنده">
@@ -407,7 +407,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 <button id="searchBtn" type="button">جستجو</button>
 <button id="clearBtn" type="button">پاک‌کردن</button>
 </div>
-<div class="hint">می‌توانید نام کامل محصول/متن پیام را Paste کنید. جستجو تفاوت نیم‌فاصله، اعداد فارسی/انگلیسی و خط تیره مدل‌ها را نادیده می‌گیرد. تاریخ شمسی نمونه: ۱۴۰۵/۰۷/۰۸</div>
+<div class="hint">می‌توانید نام کامل محصول/متن پیام را Paste کنید. جستجو تفاوت نیم‌فاصله، اعداد فارسی/انگلیسی و خط تیره مدل‌ها را نادیده می‌گیرد. تاریخ شمسی نمونه: ۱۴۰۵/۰۷/۰۸</div></div>
 <div id="list"></div></div>
 <div id="picker" class="picker"><div class="pickerBox"><div class="pickerHead"><button id="nextMonth">◀</button><strong id="pickerTitle"></strong><button id="prevMonth">▶</button></div><div class="days" id="pickerDays"></div><button id="pickerClose" type="button">بستن</button></div></div>
 <script>
