@@ -28,6 +28,7 @@ KEYWORDS = [
 
 MAX_CHATS = int(os.getenv("BALE_MAX_CHATS", "500"))
 MESSAGES_PER_CHAT = int(os.getenv("BALE_MESSAGES_PER_CHAT", "200"))
+OVERLAP_AFTER_CHECKPOINT = int(os.getenv("BALE_SYNC_OVERLAP_MESSAGES", "50"))
 
 def load_cached_sender(sender_id):
     if not sender_id:
@@ -110,11 +111,17 @@ def load_registry_targets():
 
 
 def get_text(message):
+    """Extract searchable text from both text posts and media captions."""
     content = getattr(message, "content", None)
-    if content:
-        text = getattr(content, "text", None)
-        if text and text.strip():
-            return text.strip()
+    if not content:
+        return None
+    text = getattr(content, "text", None)
+    if text and str(text).strip():
+        return str(text).strip()
+    media = getattr(content, "media", None)
+    caption = getattr(media, "caption", None) if media is not None else None
+    if caption and str(caption).strip():
+        return str(caption).strip()
     return None
 
 
@@ -235,6 +242,7 @@ async def main():
             chat_duplicates = 0
             newest_cursor = None
             reached_checkpoint = False
+            overlap_remaining = 0
 
             for message in messages:
                 rid = str(getattr(message, "rid", "") or "")
@@ -242,9 +250,14 @@ async def main():
                 if newest_cursor is None and rid:
                     newest_cursor = rid
 
-                if previous_cursor and rid == previous_cursor:
+                if previous_cursor and rid == previous_cursor and not reached_checkpoint:
                     reached_checkpoint = True
-                    break
+                    overlap_remaining = OVERLAP_AFTER_CHECKPOINT
+                    continue
+                if reached_checkpoint:
+                    if overlap_remaining <= 0:
+                        break
+                    overlap_remaining -= 1
 
                 total_read += 1
                 chat_read += 1
