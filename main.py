@@ -402,8 +402,8 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 <input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
 <select id="cat"><option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option><option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select>
 <input id="sender" placeholder="ID خریدار/فروشنده">
-<div class="datebox"><input id="from" inputmode="numeric" placeholder="از تاریخ"><button type="button" class="calBtn" data-target="from">📅</button></div>
-<div class="datebox"><input id="to" inputmode="numeric" placeholder="تا تاریخ"><button type="button" class="calBtn" data-target="to">📅</button></div>
+<div class="datebox"><input id="from" inputmode="numeric" autocomplete="off" placeholder="از تاریخ (اختیاری)"><button type="button" class="calBtn" data-target="from">📅</button></div>
+<div class="datebox"><input id="to" inputmode="numeric" autocomplete="off" placeholder="تا تاریخ (اختیاری)"><button type="button" class="calBtn" data-target="to">📅</button></div>
 <button id="searchBtn" type="button">جستجو</button>
 <button id="clearBtn" type="button">پاک‌کردن</button>
 </div>
@@ -431,10 +431,15 @@ function senderHtml(r){
  const id=r.sender_id?' • ID: '+escapeHtml(r.sender_id):'';
  return label+id+' <span class="tag">لینک عمومی بله موجود نیست</span>';
 }
+let dateTouched={from:false,to:false};
 function params(){
  const p=new URLSearchParams();
- const values={q:'q',category:'cat',sender_id:'sender',date_from:'from',date_to:'to'};
+ const values={q:'q',category:'cat',sender_id:'sender'};
  for(const [key,id] of Object.entries(values)){const v=document.getElementById(id).value.trim();if(v)p.set(key,v);}
+ for(const id of ['from','to']){
+   const v=document.getElementById(id).value.trim();
+   if(dateTouched[id] && v)p.set(id==='from'?'date_from':'date_to',v);
+ }
  return p;
 }
 async function load(){
@@ -449,7 +454,7 @@ async function load(){
    list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+' <a class="leadBtn" href="/review?message_id='+r.id+'">بررسی و انتخاب سرنخ</a></div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
-function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');document.getElementById('cat').value='';load();}
+function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');dateTouched={from:false,to:false};document.getElementById('cat').value='';load();}
 
 const jMonths=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
 let pickerTarget=null,pickerY=1405,pickerM=7;
@@ -465,7 +470,7 @@ function renderPicker(){
  const box=document.getElementById('pickerDays');box.innerHTML='';
  for(let d=1;d<=jMonthDays(pickerY,pickerM);d++){const b=document.createElement('button');b.type='button';b.textContent=d;b.onclick=()=>{document.getElementById(pickerTarget).value=pickerY+'/'+String(pickerM).padStart(2,'0')+'/'+String(d).padStart(2,'0');document.getElementById('picker').classList.remove('show');};box.appendChild(b);}
 }
-document.querySelectorAll('.calBtn').forEach(b=>b.addEventListener('click',()=>openPicker(b.dataset.target)));
+document.querySelectorAll('.calBtn').forEach(b=>b.addEventListener('click',()=>{dateTouched[b.dataset.target]=true;openPicker(b.dataset.target);}));
 document.getElementById('pickerClose').onclick=()=>document.getElementById('picker').classList.remove('show');
 document.getElementById('prevMonth').onclick=()=>{pickerM--;if(pickerM<1){pickerM=12;pickerY--;}renderPicker();};
 document.getElementById('nextMonth').onclick=()=>{pickerM++;if(pickerM>12){pickerM=1;pickerY++;}renderPicker();};
@@ -473,6 +478,12 @@ document.getElementById('nextMonth').onclick=()=>{pickerM++;if(pickerM>12){picke
 document.getElementById('logoutBtn').addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/login';});
 document.getElementById('searchBtn').addEventListener('click',load);
 document.getElementById('clearBtn').addEventListener('click',clearFilters);
-['q','sender','from','to'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')load();}));
+['q','sender'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')load();}));
+['from','to'].forEach(id=>{
+ const el=document.getElementById(id);
+ el.value='';
+ el.addEventListener('input',()=>{dateTouched[id]=true;});
+ el.addEventListener('keydown',e=>{if(e.key==='Enter')load();});
+});
 load();
 </script></body></html>""")
