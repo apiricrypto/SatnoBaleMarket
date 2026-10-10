@@ -316,67 +316,116 @@ body{font-family:system-ui,Tahoma;background:#f4f7fb;margin:0;color:#17212f}
 input,button{box-sizing:border-box;padding:10px;border:1px solid #cfd8e3;border-radius:9px;background:#fff}
 button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5c}.danger{color:#b42318}.muted{color:#667085;font-size:13px}
 .results{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:10px}.candidate{border:1px solid #e5e7eb;border-radius:12px;padding:10px}
-.source{display:grid;grid-template-columns:minmax(220px,2fr) 130px 110px 130px minmax(180px,1fr) auto;gap:8px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0}
-.source:first-child{border-top:0}.scorebox{display:flex;align-items:center;gap:4px}.scorebox input{width:68px;text-align:center}.scorebox button{padding:8px}.status{font-size:13px}.ok{color:#067647}.err{color:#b42318}
+.source{display:grid;grid-template-columns:minmax(220px,2fr) 170px 110px 150px minmax(180px,1fr) auto;gap:8px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0}
+.source:first-child{border-top:0}.scorebox{display:flex;align-items:center;gap:4px}.scorebox input{width:68px;text-align:center}.scorebox button{padding:8px}.status{font-size:13px;margin-top:8px}.ok{color:#067647}.err{color:#b42318}
+.badge{display:inline-block;background:#eef6f8;padding:3px 8px;border-radius:99px;font-size:12px}
 @media(max-width:900px){.source{grid-template-columns:1fr}.searchbox{grid-template-columns:1fr}.source button{width:100%}}
 </style></head>
 <body><div class="wrap">
-<div class="top"><div><h2>مدیریت منابع بله</h2><div class="muted">منبع را با نام کانال/گروه، @username یا لینک ble.ir پیدا کنید؛ سپس خودتان نتیجه صحیح را اضافه کنید.</div></div><a href="/">← داشبورد</a></div>
+<div class="top"><div><h2>مدیریت منابع بله</h2><div class="muted">نام کانال/گروه، @username یا لینک ble.ir را جستجو کنید؛ نتیجه صحیح را انتخاب کنید.</div></div><a href="/">← داشبورد</a></div>
 
 <div class="card">
 <h3>افزودن منبع جدید</h3>
-<div class="searchbox"><input id="discoverQ" placeholder="مثال: بازار انرژی خورشیدی یا @channelname یا https://ble.ir/channelname"><button class="primary" onclick="discover()">جستجو در بله</button></div>
-<div id="discoverMsg" class="muted"></div><div id="discoverResults" class="results"></div>
+<div class="searchbox"><input id="discoverQ" autocomplete="off" placeholder="مثال: بازار انرژی خورشیدی یا @channelname یا https://ble.ir/channelname"><button id="discoverBtn" class="primary" type="button">جستجو در بله</button></div>
+<div id="discoverMsg" class="status muted"></div><div id="discoverResults" class="results"></div>
 <details style="margin-top:12px"><summary>افزودن با Peer ID (حالت فنی)</summary>
-<form id="manual" style="margin-top:8px"><input id="pt" type="number" value="2" placeholder="Peer type"><input id="pid" type="number" placeholder="Peer ID" required><input id="manualTitle" placeholder="عنوان"><input id="manualScore" type="number" value="50" placeholder="امتیاز"><button>افزودن</button></form>
+<form id="manualForm" style="margin-top:8px"><input id="pt" type="number" value="2" placeholder="Peer type"><input id="pid" type="number" placeholder="Peer ID" required><input id="manualTitle" placeholder="عنوان"><input id="manualScore" type="number" value="50" placeholder="امتیاز"><button class="primary">افزودن</button></form>
 </details>
 </div>
 
-<div class="card"><div class="top"><h3>منابع ثبت‌شده</h3><button onclick="loadSources()">↻ تازه‌سازی</button></div>
-<div class="muted">امتیاز، اولویت Sync است. عدد بالاتر یعنی منبع زودتر اسکن می‌شود. پیشنهاد: عادی 50، مهم 80، خیلی مهم 100.</div>
-<div id="sourceMsg" class="status"></div><div id="sources"></div></div>
+<div class="card"><div class="top"><h3>منابع ثبت‌شده <span id="sourceCount" class="badge">...</span></h3><button id="reloadBtn" type="button">↻ تازه‌سازی</button></div>
+<div class="muted">امتیاز = اولویت Sync. عدد بالاتر زودتر اسکن می‌شود. عادی 50، مهم 80، خیلی مهم 100.</div>
+<div id="sourceMsg" class="status muted">در حال بارگذاری منابع...</div><div id="sourceList"></div></div>
 </div>
 <script>
-function esc(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML}
-async function api(url,opt){const r=await fetch(url,opt);let d=null;try{d=await r.json()}catch(e){}if(!r.ok)throw new Error((d&&d.detail)||('HTTP '+r.status));return d}
-async function discover(){
- discoverMsg.textContent='در حال جستجو...';discoverResults.innerHTML='';
- try{
-  const d=await api('/api/sources/discover?q='+encodeURIComponent(discoverQ.value.trim()));
-  discoverMsg.textContent=d.results.length?('نتایج: '+d.results.length):'نتیجه‌ای پیدا نشد. نام یا @username را دقیق‌تر وارد کنید.';
-  discoverResults.innerHTML=d.results.map(x=>'<div class="candidate"><strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.members_count?' • '+esc(x.members_count)+' عضو':'')+'</div><button class="primary" onclick=\'addCandidate('+JSON.stringify(x)+')\'>افزودن این منبع</button></div>').join('');
- }catch(e){discoverMsg.textContent=e.message;discoverMsg.className='err'}
-}
-async function addCandidate(x){
- try{
-  await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:x.peer_type,peer_id:x.peer_id,title:x.title||x.username||null,score:50,matched_terms:null,enabled:true})});
-  discoverMsg.textContent='منبع اضافه شد.';discoverMsg.className='ok';loadSources();
- }catch(e){discoverMsg.textContent=e.message;discoverMsg.className='err'}
-}
-async function loadSources(){
- sourceMsg.textContent='در حال بارگذاری...';
- try{
-  const a=await api('/api/sources');
-  sources.innerHTML=a.map(x=>'<div class="source" data-pt="'+esc(x.peer_type)+'" data-pid="'+esc(x.peer_id)+'"><div><input class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div><div class="scorebox"><button onclick="bump(this,-10)">−10</button><input class="score" type="number" value="'+esc(x.score||0)+'"><button onclick="bump(this,10)">+10</button></div><label><input class="enabled" type="checkbox" '+(x.enabled?'checked':'')+'> فعال</label><input class="terms" value="'+esc(x.matched_terms||'')+'" placeholder="کلیدواژه‌ها"><div class="muted">آخرین مشاهده: '+esc(x.last_seen_at||'-')+'</div><div><button class="primary" onclick="saveSource(this)">ذخیره</button> <button class="danger" onclick="deleteSource(this)">حذف</button></div></div>').join('');
-  sourceMsg.textContent=a.length+' منبع';sourceMsg.className='status ok';
- }catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}
-}
-function bump(btn,n){const row=btn.closest('.source'),i=row.querySelector('.score');i.value=Math.max(0,Number(i.value||0)+n)}
-async function saveSource(btn){
- const row=btn.closest('.source'),pt=row.dataset.pt,pid=row.dataset.pid;
- try{
-  await api('/api/sources/item/'+pt+'/'+pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:row.querySelector('.title').value.trim(),score:Number(row.querySelector('.score').value||0),enabled:row.querySelector('.enabled').checked,matched_terms:row.querySelector('.terms').value.trim()||null})});
-  sourceMsg.textContent='تغییرات ذخیره شد.';sourceMsg.className='status ok';loadSources();
- }catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}
-}
-async function deleteSource(btn){
- if(!confirm('این منبع از فهرست Sync حذف شود؟ پیام‌های تاریخی حذف نمی‌شوند.'))return;
- const row=btn.closest('.source'),pt=row.dataset.pt,pid=row.dataset.pid;
- try{await fetch('/api/sources/item/'+pt+'/'+pid,{method:'DELETE'});loadSources()}catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}
-}
-manual.onsubmit=async ev=>{ev.preventDefault();try{await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:Number(pt.value),peer_id:Number(pid.value),title:manualTitle.value||null,score:Number(manualScore.value||50),matched_terms:null,enabled:true})});ev.target.reset();pt.value=2;manualScore.value=50;loadSources()}catch(e){sourceMsg.textContent=e.message;sourceMsg.className='status err'}};
-discoverQ.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover()}});
-loadSources();
+(function(){
+ const $=id=>document.getElementById(id);
+ const esc=v=>{const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML};
+ async function api(url,opt){
+   const r=await fetch(url,opt); let d=null;
+   try{d=await r.json()}catch(e){}
+   if(!r.ok) throw new Error((d&&d.detail)||('HTTP '+r.status));
+   return d;
+ }
+ function setMsg(el,text,ok){
+   el.textContent=text||''; el.className='status '+(ok===true?'ok':ok===false?'err':'muted');
+ }
+ async function discover(){
+   const q=$('discoverQ').value.trim();
+   if(!q){setMsg($('discoverMsg'),'نام یا آدرس کانال/گروه را وارد کنید.',false);return;}
+   $('discoverResults').innerHTML=''; setMsg($('discoverMsg'),'در حال جستجو در بله...',null);
+   try{
+     const d=await api('/api/sources/discover?q='+encodeURIComponent(q));
+     if(!d.results.length){setMsg($('discoverMsg'),'نتیجه‌ای پیدا نشد. @username یا لینک دقیق را امتحان کنید.',false);return;}
+     setMsg($('discoverMsg'),d.results.length+' نتیجه پیدا شد.',true);
+     for(const x of d.results){
+       const box=document.createElement('div'); box.className='candidate';
+       box.innerHTML='<strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.members_count?' • '+esc(x.members_count)+' عضو':'')+'</div>';
+       const btn=document.createElement('button'); btn.type='button'; btn.className='primary'; btn.textContent='افزودن این منبع';
+       btn.addEventListener('click',()=>addCandidate(x,btn));
+       box.appendChild(btn); $('discoverResults').appendChild(box);
+     }
+   }catch(e){setMsg($('discoverMsg'),e.message,false);}
+ }
+ async function addCandidate(x,btn){
+   btn.disabled=true;
+   try{
+     await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:x.peer_type,peer_id:x.peer_id,title:x.title||x.username||null,score:50,matched_terms:null,enabled:true})});
+     setMsg($('discoverMsg'),'منبع اضافه شد.',true); await loadSources();
+   }catch(e){setMsg($('discoverMsg'),e.message,false);}
+   finally{btn.disabled=false;}
+ }
+ async function loadSources(){
+   setMsg($('sourceMsg'),'در حال بارگذاری منابع...',null);
+   try{
+     const a=await api('/api/sources');
+     $('sourceCount').textContent=String(a.length);
+     $('sourceList').innerHTML='';
+     for(const x of a){
+       const row=document.createElement('div'); row.className='source';
+       row.dataset.pt=x.peer_type; row.dataset.pid=x.peer_id;
+       row.innerHTML='<div><input class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
+       '<div class="scorebox"><button type="button" class="minus">−10</button><input class="score" type="number" min="0" value="'+esc(x.score||0)+'"><button type="button" class="plus">+10</button></div>'+
+       '<label><input class="enabled" type="checkbox" '+(x.enabled?'checked':'')+'> فعال</label>'+
+       '<input class="terms" value="'+esc(x.matched_terms||'')+'" placeholder="کلیدواژه‌ها">'+
+       '<div class="muted">آخرین مشاهده: '+esc(x.last_seen_at||'-')+'</div>'+
+       '<div><button type="button" class="primary save">ذخیره</button> <button type="button" class="danger del">حذف</button></div>';
+       row.querySelector('.minus').addEventListener('click',()=>bump(row,-10));
+       row.querySelector('.plus').addEventListener('click',()=>bump(row,10));
+       row.querySelector('.save').addEventListener('click',()=>saveSource(row));
+       row.querySelector('.del').addEventListener('click',()=>deleteSource(row));
+       $('sourceList').appendChild(row);
+     }
+     setMsg($('sourceMsg'),a.length?('نمایش '+a.length+' منبع ثبت‌شده'):'هیچ منبعی در Registry ثبت نشده است.',a.length>0);
+   }catch(e){$('sourceCount').textContent='!';setMsg($('sourceMsg'),'خطا در دریافت منابع: '+e.message,false);}
+ }
+ function bump(row,n){const i=row.querySelector('.score');i.value=Math.max(0,Number(i.value||0)+n)}
+ async function saveSource(row){
+   try{
+     await api('/api/sources/item/'+encodeURIComponent(row.dataset.pt)+'/'+encodeURIComponent(row.dataset.pid),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:row.querySelector('.title').value.trim(),score:Number(row.querySelector('.score').value||0),enabled:row.querySelector('.enabled').checked,matched_terms:row.querySelector('.terms').value.trim()||null})});
+     setMsg($('sourceMsg'),'تغییرات ذخیره شد.',true); await loadSources();
+   }catch(e){setMsg($('sourceMsg'),'ذخیره ناموفق: '+e.message,false);}
+ }
+ async function deleteSource(row){
+   if(!confirm('این منبع از فهرست Sync حذف شود؟ پیام‌های تاریخی حذف نمی‌شوند.')) return;
+   try{
+     const r=await fetch('/api/sources/item/'+encodeURIComponent(row.dataset.pt)+'/'+encodeURIComponent(row.dataset.pid),{method:'DELETE'});
+     if(!r.ok) throw new Error('HTTP '+r.status);
+     await loadSources();
+   }catch(e){setMsg($('sourceMsg'),'حذف ناموفق: '+e.message,false);}
+ }
+ $('discoverBtn').addEventListener('click',discover);
+ $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
+ $('reloadBtn').addEventListener('click',loadSources);
+ $('manualForm').addEventListener('submit',async e=>{
+   e.preventDefault();
+   try{
+     await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:Number($('pt').value),peer_id:Number($('pid').value),title:$('manualTitle').value||null,score:Number($('manualScore').value||50),matched_terms:null,enabled:true})});
+     e.target.reset(); $('pt').value=2; $('manualScore').value=50; await loadSources();
+   }catch(err){setMsg($('sourceMsg'),'افزودن ناموفق: '+err.message,false);}
+ });
+ loadSources();
+})();
 </script></body></html>""")
 
 
