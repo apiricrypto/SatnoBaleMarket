@@ -12,10 +12,15 @@ from time_utils import parse_message_datetime
 from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user
 from crm_connector import queue_lead
 from operations_routes import router as operations_router
+from ui_theme import SATNO_UI_CSS
 import json
 
-app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.0")
+app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.1")
 app.include_router(operations_router)
+
+@app.get("/assets/satno-ui.css")
+def satno_ui_css():
+    return Response(content=SATNO_UI_CSS, media_type="text/css; charset=utf-8")
 
 SESSION_COOKIE_NAME = "satno_staff_session"
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
@@ -104,7 +109,7 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;display:grid;
 .box{width:min(380px,90vw);background:white;border:1px solid #e6eaf0;border-radius:16px;padding:22px;box-shadow:0 10px 30px #0001}
 input,button{box-sizing:border-box;width:100%;padding:12px;margin:7px 0;border:1px solid #d7dde7;border-radius:10px}
 button{cursor:pointer;background:#102d3d;color:white}.err{color:#b42318;min-height:24px}
-</style></head><body><form class="box" id="loginForm">
+</style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><form class="box" id="loginForm">
 <h2>ورود پرسنل ساتنو</h2><input id="username" autocomplete="username" placeholder="نام کاربری" required>
 <input id="password" type="password" autocomplete="current-password" placeholder="رمز عبور" required>
 <button type="submit">ورود</button><div id="err" class="err"></div></form>
@@ -161,7 +166,7 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 input,select,button{padding:9px;border:1px solid #d7dde7;border-radius:9px;margin:3px}button{cursor:pointer}
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right}
 .err{color:#b42318}a{color:#0866c6;text-decoration:none}
-</style></head><body><div class="wrap"><h2>مدیریت کاربران پرسنل</h2>
+</style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><div class="wrap"><h2>مدیریت کاربران پرسنل</h2>
 <p><a href="/">← داشبورد</a></p>
 <form id="create" class="card"><input id="username" placeholder="نام کاربری" required>
 <input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
@@ -223,7 +228,7 @@ def admin_update_user(user_id: int, payload: StaffUserUpdate, user=Depends(requi
 
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"satno-bale-market","version":"0.5.0"}
+    return {"status":"ok","service":"satno-bale-market","version":"0.5.1"}
 
 @app.post("/api/messages")
 def create_message(m: MessageIn, user=Depends(require_message_write)):
@@ -327,7 +332,7 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 .card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right;font-size:13px}
 a{color:#0866c6;text-decoration:none}
-</style></head><body><div class="wrap">
+</style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><div class="wrap">
 <h2>وضعیت منابع و Sync</h2><p><a href="/">← بازگشت به داشبورد</a></p>
 <div id="summary" class="card">در حال بارگذاری...</div>
 <div class="card"><table><thead><tr><th>منبع</th><th>نوع</th><th>امتیاز</th><th>فعال</th><th>آخرین مشاهده</th></tr></thead><tbody id="rows"></tbody></table></div>
@@ -394,10 +399,10 @@ button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;bor
 a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:8px}
 .datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
-</style></head><body><div class="wrap">
+</style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
 <div class="nav"><a href="/review">✓ بررسی سرنخ‌ها</a><a href="/sources/manage">☰ مدیریت منابع</a><a href="/status">↻ وضعیت Sync</a><a href="/crm/outbox">⇢ صف CRM</a><a href="/admin/users">⚙ کاربران</a><button id="logoutBtn" type="button">خروج</button></div>
-<div id="stats" class="stats">در حال بارگذاری...</div>
+<div id="stats" class="metric-grid"><div class="metric"><div class="label">در حال بارگذاری</div><div class="value">…</div></div></div>
 <div class="searchpanel"><div class="bar">
 <input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
 <select id="cat"><option value="">همه دسته‌ها</option><option value="supplier_seller">فروشنده/تأمین‌کننده</option><option value="buyer_demand">خریدار/تقاضا</option><option value="stock_availability">موجودی</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select>
@@ -450,8 +455,13 @@ async function load(){
    if(!sr.ok||!rr.ok) throw new Error('HTTP '+sr.status+'/'+rr.status);
    const s=await sr.json(), rows=await rr.json();
    const ls=s.last_sync; const syncText=ls?(' | آخرین Sync: '+(ls.finished_at||ls.started_at)+' | جدید: '+ls.messages_saved):' | هنوز Sync ثبت نشده'; const sourceText=' | منابع فعال: '+s.active_sources+' | History: '+s.history_scanned;
-   document.getElementById('stats').textContent='کل پیام‌ها: '+s.total+' | نتایج: '+rows.length+sourceText+syncText;
-   list.innerHTML=rows.length?rows.map(r=>'<div class="card"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><p>'+escapeHtml(r.text)+'</p><span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+' <a class="leadBtn" href="/review?message_id='+r.id+'">بررسی و انتخاب سرنخ</a></div>').join(''):'<div class="stats">نتیجه‌ای پیدا نشد.</div>';
+   document.getElementById('stats').innerHTML=
+   '<div class="metric"><div class="label">کل پیام‌ها</div><div class="value">'+s.total+'</div><div class="foot">دیتابیس بازار</div></div>'+
+   '<div class="metric"><div class="label">نتایج این جستجو</div><div class="value">'+rows.length+'</div><div class="foot">'+(document.getElementById('q').value.trim()?'فیلتر فعال':'آخرین پیام‌ها')+'</div></div>'+
+   '<div class="metric"><div class="label">منابع فعال</div><div class="value">'+s.active_sources+'</div><div class="foot">کانال/گروه تحت پایش</div></div>'+
+   '<div class="metric"><div class="label">History خوانده‌شده</div><div class="value">'+s.history_scanned+'</div><div class="foot">رکورد بررسی‌شده</div></div>'+
+   '<div class="metric"><div class="label">آخرین Sync</div><div class="value '+((ls&&ls.status==='ok')?'kpi-good':'kpi-warn')+'">'+(ls?(ls.status||'—'):'—')+'</div><div class="foot">'+(ls?(ls.finished_at||ls.started_at||''):'هنوز ثبت نشده')+'</div></div>';
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div><div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی سرنخ</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');dateTouched={from:false,to:false};document.getElementById('cat').value='';load();}
