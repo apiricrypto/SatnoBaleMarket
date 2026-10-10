@@ -78,7 +78,7 @@ try {
     }
 
     $health = Invoke-RestMethod "http://127.0.0.1:8000/health" -TimeoutSec 10
-    if ($health.status -ne "ok" -or $health.version -ne "0.5.0") {
+    if ($health.status -ne "ok" -or $health.version -ne "0.5.1") {
         throw "Bale Market health check failed after install"
     }
 
