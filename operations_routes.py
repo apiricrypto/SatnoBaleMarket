@@ -246,8 +246,9 @@ async def _discover_bale_live(query: str, token: str):
             try:
                 info = await asyncio.wait_for(client.resolve(query), timeout=5)
                 full = await asyncio.wait_for(client.get_full(info.peer), timeout=5)
-                add_result(full, "username")
-                if results:
+                resolved_username = normalize_search_text(getattr(full, "username", "") or "")
+                if resolved_username == normalize_search_text(query):
+                    add_result(full, "username")
                     return results
             except Exception:
                 pass
@@ -268,7 +269,8 @@ async def _discover_bale_live(query: str, token: str):
                 full = await asyncio.wait_for(client.get_full(candidate.peer), timeout=3)
             except Exception:
                 pass
-            add_result(full, "title")
+            if _candidate_relevance({"title": getattr(full, "title", ""), "username": getattr(full, "username", "")}, query) >= 60:
+                add_result(full, "title")
             if len(results) >= 10:
                 break
 
@@ -329,11 +331,8 @@ def _candidate_relevance(row, query):
         ratio = SequenceMatcher(None, qnorm, title_norm).ratio()
         if ratio >= 0.72:
             return 60 + int(ratio * 20)
-    # query_text is weak provenance only; it must never outrank a real
-    # title/username match. It is retained only to recover previously seen
-    # candidates from an earlier successful live query.
-    if query_norm and qnorm == query_norm:
-        return 20
+    # A prior search query is not evidence that this Peer matches.
+    # Never suggest a candidate solely because it was returned by fuzzy SearchPeer.
     return 0
 
 
@@ -426,11 +425,7 @@ def source_candidates(q: str = "", limit: int = 100, user=Depends(require_admin)
 
     ranked.sort(key=lambda x: (x["relevance"], x.get("last_seen_at") or ""), reverse=True)
     if q:
-        strong = [x for x in ranked if x["relevance"] >= 60]
-        # Prefer only genuinely relevant rows. If none exists, keep a few weak
-        # historical candidates so staff can still recover a channel they saw
-        # before refresh, but clearly mark them as probable rather than exact.
-        ranked = strong if strong else ranked[:5]
+        ranked = [x for x in ranked if x["relevance"] >= 60]
     return {"query": q, "results": ranked[:limit]}
 
 
@@ -492,6 +487,7 @@ async def source_discover(q: str, user=Depends(require_admin)):
             detail=f"جستجوی بله ناموفق بود: {type(exc).__name__}",
         )
 
+    results = [item for item in results if _candidate_relevance(item, query) >= 60]
     if results:
         _cache_discovery_results(query, results)
     return {"query": query, "results": results, "mode": "live"}
