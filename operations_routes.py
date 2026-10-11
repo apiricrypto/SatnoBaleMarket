@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import Optional
@@ -169,6 +170,58 @@ def crm_process(limit: int = 10, user=Depends(require_admin)):
     return {"results": process_outbox(limit=max(1, min(int(limit), 50)))}
 
 
+async def _discover_bale_live(query: str, token: str):
+    results = []
+    async with BaleClient(token) as client:
+        def add_result(full, match):
+            item = {
+                "peer_type": full.peer.type,
+                "peer_id": full.peer.id,
+                "title": getattr(full, "title", None) or query,
+                "username": getattr(full, "username", None),
+                "members_count": getattr(full, "members_count", None),
+                "match": match,
+            }
+            if not any(
+                x["peer_type"] == item["peer_type"] and x["peer_id"] == item["peer_id"]
+                for x in results
+            ):
+                results.append(item)
+
+        # Exact public username/link lookup first. Keep this path short and bounded.
+        if query and " " not in query:
+            try:
+                info = await asyncio.wait_for(client.resolve(query), timeout=5)
+                full = await asyncio.wait_for(client.get_full(info.peer), timeout=5)
+                add_result(full, "username")
+                if results:
+                    return results
+            except Exception:
+                pass
+
+        # Bale server-side title search. This RPC is known to be unreliable on
+        # some transport revisions, so it must never block the staff UI.
+        try:
+            candidates = await asyncio.wait_for(
+                client.resolver.search_peer(query, kind="channel", limit=10),
+                timeout=6,
+            )
+        except Exception:
+            candidates = []
+
+        for candidate in candidates:
+            full = candidate
+            try:
+                full = await asyncio.wait_for(client.get_full(candidate.peer), timeout=3)
+            except Exception:
+                pass
+            add_result(full, "title")
+            if len(results) >= 10:
+                break
+
+    return results[:10]
+
+
 @router.get("/api/sources/discover")
 async def source_discover(q: str, user=Depends(require_admin)):
     query = (q or "").strip()
@@ -183,82 +236,47 @@ async def source_discover(q: str, user=Depends(require_admin)):
         query = parsed.path.strip("/").split("/", 1)[0] or query
     query = query.lstrip("@").strip()
 
-    results = []
+    # First return instant local matches from already-known sources. This keeps
+    # the page responsive even when Bale's SearchPeer transport is degraded.
+    qnorm = normalize_search_text(query)
+    with connect() as con:
+        known = [
+            dict(row)
+            for row in con.execute(
+                """SELECT source_key,title,peer_type,peer_id,score,enabled,last_seen_at
+                   FROM source_registry
+                   ORDER BY score DESC,title"""
+            ).fetchall()
+        ]
+    local = []
+    for row in known:
+        if qnorm and qnorm in normalize_search_text(row.get("title") or ""):
+            local.append({
+                "peer_type": int(row["peer_type"]),
+                "peer_id": int(row["peer_id"]),
+                "title": row.get("title"),
+                "username": None,
+                "members_count": None,
+                "match": "local_registry",
+                "already_added": True,
+            })
+    if local:
+        return {"query": query, "results": local[:10], "mode": "local"}
+
     try:
-        async with BaleClient(token) as client:
-            qnorm = normalize_search_text(query)
-
-            def add_result(full, match):
-                item = {
-                    "peer_type": full.peer.type,
-                    "peer_id": full.peer.id,
-                    "title": getattr(full, "title", None) or query,
-                    "username": getattr(full, "username", None),
-                    "members_count": getattr(full, "members_count", None),
-                    "match": match,
-                }
-                if not any(
-                    x["peer_type"] == item["peer_type"] and x["peer_id"] == item["peer_id"]
-                    for x in results
-                ):
-                    results.append(item)
-
-            # 1) Exact public username/link lookup.
-            if query and " " not in query:
-                try:
-                    info = await client.resolve(query)
-                    full = await client.get_full(info.peer)
-                    add_result(full, "username")
-                except Exception:
-                    pass
-
-            # 2) Bale server-side title search.
-            try:
-                candidates = await client.resolver.search_peer(query, kind="channel", limit=10)
-            except Exception:
-                candidates = []
-            for candidate in candidates:
-                full = candidate
-                try:
-                    full = await client.get_full(candidate.peer)
-                except Exception:
-                    pass
-                add_result(full, "title")
-
-            # 3) Fallback over the account's own dialogs. Some public Bale
-            # channels are not returned reliably by SearchPeer but are already
-            # present in dialogs. Match both title and resolved username.
-            if len(results) < 10:
-                async for dialog in client.iter_dialogs(
-                    limit=500,
-                    page_size=50,
-                    resolve_names=True,
-                ):
-                    peer = getattr(dialog, "peer", None)
-                    title = getattr(dialog, "title", "") or ""
-                    if peer is None:
-                        continue
-                    title_norm = normalize_search_text(title)
-                    likely = bool(qnorm and (qnorm in title_norm or title_norm in qnorm))
-                    full = None
-                    if likely or (" " not in query and len(results) < 5):
-                        try:
-                            full = await client.get_full(peer)
-                        except Exception:
-                            full = None
-                    username = getattr(full, "username", None) if full is not None else None
-                    user_norm = normalize_search_text(username or "")
-                    if likely or (qnorm and user_norm and qnorm == user_norm):
-                        add_result(full or dialog, "dialogs")
-                    if len(results) >= 10:
-                        break
+        results = await asyncio.wait_for(_discover_bale_live(query, token), timeout=12)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="پاسخ جستجوی بله بیش از حد طول کشید. از Peer ID استفاده کنید یا چند دقیقه بعد دوباره تلاش کنید.",
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=502,
             detail=f"جستجوی بله ناموفق بود: {type(exc).__name__}",
         )
 
-    return {"query": query, "results": results[:10]}
+    return {"query": query, "results": results, "mode": "live"}
 
 
 @router.patch("/api/sources/item/{peer_type}/{peer_id}")
@@ -383,8 +401,10 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
    const q=$('discoverQ').value.trim();
    if(!q){setMsg($('discoverMsg'),'نام یا آدرس کانال/گروه را وارد کنید.',false);return;}
    $('discoverResults').innerHTML=''; setMsg($('discoverMsg'),'در حال جستجو در بله...',null);
+   const controller=new AbortController();
+   const timer=setTimeout(()=>controller.abort(),15000);
    try{
-     const d=await api('/api/sources/discover?q='+encodeURIComponent(q));
+     const d=await api('/api/sources/discover?q='+encodeURIComponent(q),{signal:controller.signal});
      if(!d.results.length){setMsg($('discoverMsg'),'نتیجه‌ای پیدا نشد. @username یا لینک دقیق را امتحان کنید.',false);return;}
      setMsg($('discoverMsg'),d.results.length+' نتیجه پیدا شد.',true);
      for(const x of d.results){
@@ -394,7 +414,9 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
        btn.addEventListener('click',()=>addCandidate(x,btn));
        box.appendChild(btn); $('discoverResults').appendChild(box);
      }
-   }catch(e){setMsg($('discoverMsg'),e.message,false);}
+   }catch(e){
+     setMsg($('discoverMsg'),e.name==='AbortError'?'جستجو بیش از ۱۵ ثانیه طول کشید و متوقف شد. از Peer ID استفاده کنید.':e.message,false);
+   }finally{clearTimeout(timer);}
  }
  async function addCandidate(x,btn){
    btn.disabled=true;
