@@ -170,6 +170,57 @@ def crm_process(limit: int = 10, user=Depends(require_admin)):
     return {"results": process_outbox(limit=max(1, min(int(limit), 50)))}
 
 
+def _cache_discovery_results(query, results):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    with connect() as con:
+        for item in results:
+            con.execute(
+                """INSERT INTO source_discovery_cache
+                   (peer_type,peer_id,title,username,members_count,query_text,discovered_at,last_seen_at)
+                   VALUES(?,?,?,?,?,?,?,?)
+                   ON CONFLICT(peer_type,peer_id) DO UPDATE SET
+                     title=excluded.title,
+                     username=excluded.username,
+                     members_count=excluded.members_count,
+                     query_text=excluded.query_text,
+                     last_seen_at=excluded.last_seen_at""",
+                (
+                    str(item.get("peer_type")),
+                    str(item.get("peer_id")),
+                    item.get("title"),
+                    item.get("username"),
+                    item.get("members_count"),
+                    query,
+                    now,
+                    now,
+                ),
+            )
+
+
+def _cached_discovery_matches(query):
+    qnorm = normalize_search_text(query)
+    if not qnorm:
+        return []
+    with connect() as con:
+        rows = [dict(r) for r in con.execute(
+            """SELECT peer_type,peer_id,title,username,members_count,last_seen_at
+               FROM source_discovery_cache
+               ORDER BY last_seen_at DESC"""
+        ).fetchall()]
+    out = []
+    for row in rows:
+        title_norm = normalize_search_text(row.get("title") or "")
+        user_norm = normalize_search_text(row.get("username") or "")
+        if qnorm in title_norm or qnorm == user_norm or qnorm in user_norm:
+            row["peer_type"] = int(row["peer_type"])
+            row["peer_id"] = int(row["peer_id"])
+            row["match"] = "cache"
+            row["already_added"] = False
+            out.append(row)
+    return out[:10]
+
+
 async def _discover_bale_live(query: str, token: str):
     results = []
     async with BaleClient(token) as client:
@@ -263,6 +314,10 @@ async def source_discover(q: str, user=Depends(require_admin)):
     if local:
         return {"query": query, "results": local[:10], "mode": "local"}
 
+    cached = _cached_discovery_matches(query)
+    if cached:
+        return {"query": query, "results": cached, "mode": "cache"}
+
     try:
         results = await asyncio.wait_for(_discover_bale_live(query, token), timeout=12)
     except asyncio.TimeoutError:
@@ -276,6 +331,8 @@ async def source_discover(q: str, user=Depends(require_admin)):
             detail=f"جستجوی بله ناموفق بود: {type(exc).__name__}",
         )
 
+    if results:
+        _cache_discovery_results(query, results)
     return {"query": query, "results": results, "mode": "live"}
 
 
