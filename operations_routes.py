@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from difflib import SequenceMatcher
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -306,10 +307,38 @@ async def _discover_bale_live(query: str, token: str):
     return results[:10]
 
 
+def _candidate_relevance(row, query):
+    qnorm = normalize_search_text(query or "")
+    title_norm = normalize_search_text(row.get("title") or "")
+    user_norm = normalize_search_text(row.get("username") or "")
+    query_norm = normalize_search_text(row.get("query_text") or "")
+    if not qnorm:
+        return 1
+    if user_norm and qnorm == user_norm:
+        return 100
+    if title_norm and qnorm == title_norm:
+        return 95
+    if user_norm and (qnorm in user_norm or user_norm in qnorm):
+        return 90
+    if title_norm and (qnorm in title_norm or title_norm in qnorm):
+        return 80
+    # Fuzzy title matching is useful for spacing/wording differences, but keep
+    # the threshold high enough to avoid showing unrelated Bale search noise.
+    if title_norm:
+        ratio = SequenceMatcher(None, qnorm, title_norm).ratio()
+        if ratio >= 0.72:
+            return 60 + int(ratio * 20)
+    # query_text is weak provenance only; it must never outrank a real
+    # title/username match. It is retained only to recover previously seen
+    # candidates from an earlier successful live query.
+    if query_norm and qnorm == query_norm:
+        return 20
+    return 0
+
+
 @router.get("/api/sources/candidates")
-def source_candidates(q: str = "", limit: int = 300, user=Depends(require_admin)):
-    limit = max(1, min(int(limit), 500))
-    qnorm = normalize_search_text(q or "")
+def source_candidates(q: str = "", limit: int = 100, user=Depends(require_admin)):
+    limit = max(1, min(int(limit), 300))
     with connect() as con:
         registry = {
             (str(row["peer_type"]), str(row["peer_id"]))
@@ -323,21 +352,26 @@ def source_candidates(q: str = "", limit: int = 300, user=Depends(require_admin)
                    ORDER BY last_seen_at DESC"""
             ).fetchall()
         ]
-    out = []
+
+    ranked = []
     for row in rows:
-        haystack = " ".join(
-            normalize_search_text(row.get(k) or "")
-            for k in ("title", "username", "query_text")
-        )
-        if qnorm and qnorm not in haystack:
+        score = _candidate_relevance(row, q)
+        if q and score <= 0:
             continue
         row["peer_type"] = int(row["peer_type"])
         row["peer_id"] = int(row["peer_id"])
         row["already_added"] = (str(row["peer_type"]), str(row["peer_id"])) in registry
-        out.append(row)
-        if len(out) >= limit:
-            break
-    return {"query": q, "results": out}
+        row["relevance"] = score
+        ranked.append(row)
+
+    ranked.sort(key=lambda x: (x["relevance"], x.get("last_seen_at") or ""), reverse=True)
+    if q:
+        strong = [x for x in ranked if x["relevance"] >= 60]
+        # Prefer only genuinely relevant rows. If none exists, keep a few weak
+        # historical candidates so staff can still recover a channel they saw
+        # before refresh, but clearly mark them as probable rather than exact.
+        ranked = strong if strong else ranked[:5]
+    return {"query": q, "results": ranked[:limit]}
 
 
 @router.get("/api/sources/discover")
@@ -500,8 +534,8 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
 <div class="searchbox"><input id="discoverQ" autocomplete="off" placeholder="مثال: بازار انرژی خورشیدی یا @channelname یا https://ble.ir/channelname"><button id="discoverBtn" class="primary" type="button">جستجو در بله</button></div>
 <div id="discoverMsg" class="status muted"></div><div id="discoverResults" class="results"></div>
 <div style="margin-top:16px;border-top:1px solid #edf1f5;padding-top:14px">
-  <div class="section-head"><div><strong>کانال‌ها و گروه‌های شناسایی‌شده</strong><div class="muted">این فهرست از Sync بله ساخته می‌شود و برای کارکردن به SearchPeer زنده وابسته نیست.</div></div><button id="browseBtn" type="button">نمایش فهرست</button></div>
-  <input id="candidateQ" autocomplete="off" placeholder="فیلتر نام کانال/گروه در فهرست شناسایی‌شده" style="width:100%;margin-bottom:8px">
+  <div class="section-head"><div><strong>جستجو در کانال‌های شناسایی‌شده</strong><div class="muted">این بخش فقط نتایج مرتبط را از Cache محلی Sync نشان می‌دهد و وابسته به SearchPeer زنده نیست.</div></div></div>
+  <input id="candidateQ" autocomplete="off" placeholder="بخشی از نام کانال یا username را وارد کنید؛ مثال: partonorpars" style="width:100%;margin-bottom:8px">
   <div id="candidateMsg" class="status muted"></div><div id="candidateResults" class="results"></div>
 </div>
 <details style="margin-top:12px"><summary>افزودن با Peer ID (حالت فنی)</summary>
@@ -558,8 +592,9 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
  }
  function renderCandidates(items,container,msgEl){
    container.innerHTML='';
-   if(!items.length){setMsg(msgEl,'موردی در Cache شناسایی نشده است. یک Sync اجرا کنید.',false);return;}
-   setMsg(msgEl,items.length+' کانال/گروه قابل مشاهده',true);
+   if(!items.length){setMsg(msgEl,'تطابق مناسبی در فهرست شناسایی‌شده پیدا نشد.',false);return;}
+   const strong=items.filter(x=>(x.relevance||0)>=60).length;
+   setMsg(msgEl,strong?strong+' نتیجه مرتبط پیدا شد.':items.length+' نتیجه احتمالی از جستجوی قبلی پیدا شد؛ قبل از افزودن عنوان/ID را بررسی کنید.',strong>0);
    for(const x of items){
      const box=document.createElement('div');box.className='candidate';
      box.innerHTML='<strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.last_seen_at?' • آخرین مشاهده '+esc(x.last_seen_at):'')+'</div>';
@@ -573,7 +608,8 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
    const q=$('candidateQ').value.trim();
    setMsg($('candidateMsg'),'در حال خواندن فهرست محلی...',null);
    try{
-     const d=await api('/api/sources/candidates?limit=300&q='+encodeURIComponent(q));
+     if(!q){setMsg($('candidateMsg'),'برای جلوگیری از نمایش کانال‌های نامرتبط، بخشی از نام یا username را وارد کنید.',null);$('candidateResults').innerHTML='';return;}
+     const d=await api('/api/sources/candidates?limit=50&q='+encodeURIComponent(q));
      renderCandidates(d.results,$('candidateResults'),$('candidateMsg'));
    }catch(e){setMsg($('candidateMsg'),e.message,false);}
  }
@@ -619,7 +655,6 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
  $('discoverBtn').addEventListener('click',discover);
  $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
  $('reloadBtn').addEventListener('click',loadSources);
- $('browseBtn').addEventListener('click',loadCandidates);
  $('candidateQ').addEventListener('input',()=>{clearTimeout(window.__candTimer);window.__candTimer=setTimeout(loadCandidates,250);});
  $('manualForm').addEventListener('submit',async e=>{
    e.preventDefault();
