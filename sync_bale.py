@@ -130,6 +130,28 @@ def get_source_key(peer):
     peer_id = getattr(peer, "id", "unknown")
     return f"bale:{peer_type}:{peer_id}"
 
+def cache_dialog_candidate(dialog):
+    peer = getattr(dialog, "peer", None)
+    if peer is None:
+        return
+    title = getattr(dialog, "title", "") or ""
+    peer_type = getattr(peer, "type", None)
+    peer_id = getattr(peer, "id", None)
+    if peer_type is None or peer_id is None:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    with connect() as con:
+        con.execute(
+            """INSERT INTO source_discovery_cache
+               (peer_type,peer_id,title,username,members_count,query_text,discovered_at,last_seen_at)
+               VALUES(?,?,?,?,?,?,?,?)
+               ON CONFLICT(peer_type,peer_id) DO UPDATE SET
+                 title=excluded.title,
+                 last_seen_at=excluded.last_seen_at""",
+            (str(peer_type), str(peer_id), title, None, None, None, now, now),
+        )
+
 
 async def main():
     init_db()
@@ -173,6 +195,7 @@ async def main():
             resolve_names=True,
         ):
             dialogs_seen += 1
+            cache_dialog_candidate(dialog)
             title = getattr(dialog, "title", "") or ""
             peer = getattr(dialog, "peer", None)
             key = get_source_key(peer) if peer is not None else ""
