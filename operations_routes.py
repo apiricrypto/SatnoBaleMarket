@@ -306,6 +306,40 @@ async def _discover_bale_live(query: str, token: str):
     return results[:10]
 
 
+@router.get("/api/sources/candidates")
+def source_candidates(q: str = "", limit: int = 300, user=Depends(require_admin)):
+    limit = max(1, min(int(limit), 500))
+    qnorm = normalize_search_text(q or "")
+    with connect() as con:
+        registry = {
+            (str(row["peer_type"]), str(row["peer_id"]))
+            for row in con.execute("SELECT peer_type,peer_id FROM source_registry").fetchall()
+        }
+        rows = [
+            dict(row)
+            for row in con.execute(
+                """SELECT peer_type,peer_id,title,username,members_count,query_text,last_seen_at
+                   FROM source_discovery_cache
+                   ORDER BY last_seen_at DESC"""
+            ).fetchall()
+        ]
+    out = []
+    for row in rows:
+        haystack = " ".join(
+            normalize_search_text(row.get(k) or "")
+            for k in ("title", "username", "query_text")
+        )
+        if qnorm and qnorm not in haystack:
+            continue
+        row["peer_type"] = int(row["peer_type"])
+        row["peer_id"] = int(row["peer_id"])
+        row["already_added"] = (str(row["peer_type"]), str(row["peer_id"])) in registry
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return {"query": q, "results": out}
+
+
 @router.get("/api/sources/discover")
 async def source_discover(q: str, user=Depends(require_admin)):
     query = (q or "").strip()
@@ -465,6 +499,11 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
 <div class="section-head"><div><h3>افزودن منبع جدید</h3><div class="muted">جستجو با نام، @username، لینک بله یا Peer ID</div></div><span class="pill">کنترل دستی منابع</span></div>
 <div class="searchbox"><input id="discoverQ" autocomplete="off" placeholder="مثال: بازار انرژی خورشیدی یا @channelname یا https://ble.ir/channelname"><button id="discoverBtn" class="primary" type="button">جستجو در بله</button></div>
 <div id="discoverMsg" class="status muted"></div><div id="discoverResults" class="results"></div>
+<div style="margin-top:16px;border-top:1px solid #edf1f5;padding-top:14px">
+  <div class="section-head"><div><strong>کانال‌ها و گروه‌های شناسایی‌شده</strong><div class="muted">این فهرست از Sync بله ساخته می‌شود و برای کارکردن به SearchPeer زنده وابسته نیست.</div></div><button id="browseBtn" type="button">نمایش فهرست</button></div>
+  <input id="candidateQ" autocomplete="off" placeholder="فیلتر نام کانال/گروه در فهرست شناسایی‌شده" style="width:100%;margin-bottom:8px">
+  <div id="candidateMsg" class="status muted"></div><div id="candidateResults" class="results"></div>
+</div>
 <details style="margin-top:12px"><summary>افزودن با Peer ID (حالت فنی)</summary>
 <form id="manualForm" style="margin-top:8px"><input id="pt" type="number" value="2" placeholder="Peer type"><input id="pid" type="number" placeholder="Peer ID" required><input id="manualTitle" placeholder="عنوان"><input id="manualScore" type="number" value="50" placeholder="امتیاز"><button class="primary">افزودن</button></form>
 </details>
@@ -501,20 +540,42 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
        const box=document.createElement('div'); box.className='candidate';
        box.innerHTML='<strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.members_count?' • '+esc(x.members_count)+' عضو':'')+'</div>';
        const btn=document.createElement('button'); btn.type='button'; btn.className='primary'; btn.textContent='افزودن این منبع';
-       btn.addEventListener('click',()=>addCandidate(x,btn));
+       btn.addEventListener('click',()=>addCandidate(x,btn,$('discoverMsg')));
        box.appendChild(btn); $('discoverResults').appendChild(box);
      }
    }catch(e){
      setMsg($('discoverMsg'),e.name==='AbortError'?'جستجو بیش از ۱۵ ثانیه طول کشید و متوقف شد. از Peer ID استفاده کنید.':e.message,false);
    }finally{clearTimeout(timer);}
  }
- async function addCandidate(x,btn){
+ async function addCandidate(x,btn,msgEl){
    btn.disabled=true;
    try{
      await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({peer_type:x.peer_type,peer_id:x.peer_id,title:x.title||x.username||null,score:50,matched_terms:null,enabled:true})});
-     setMsg($('discoverMsg'),'منبع اضافه شد.',true); await loadSources();
-   }catch(e){setMsg($('discoverMsg'),e.message,false);}
+     setMsg(msgEl||$('discoverMsg'),'منبع اضافه شد.',true); await loadSources(); await loadCandidates();
+     btn.textContent='اضافه شد';
+   }catch(e){setMsg(msgEl||$('discoverMsg'),e.message,false);}
    finally{btn.disabled=false;}
+ }
+ function renderCandidates(items,container,msgEl){
+   container.innerHTML='';
+   if(!items.length){setMsg(msgEl,'موردی در Cache شناسایی نشده است. یک Sync اجرا کنید.',false);return;}
+   setMsg(msgEl,items.length+' کانال/گروه قابل مشاهده',true);
+   for(const x of items){
+     const box=document.createElement('div');box.className='candidate';
+     box.innerHTML='<strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.last_seen_at?' • آخرین مشاهده '+esc(x.last_seen_at):'')+'</div>';
+     const btn=document.createElement('button');btn.type='button';
+     if(x.already_added){btn.textContent='قبلاً اضافه شده';btn.disabled=true;}
+     else{btn.className='primary';btn.textContent='افزودن این منبع';btn.addEventListener('click',()=>addCandidate(x,btn,msgEl));}
+     box.appendChild(btn);container.appendChild(box);
+   }
+ }
+ async function loadCandidates(){
+   const q=$('candidateQ').value.trim();
+   setMsg($('candidateMsg'),'در حال خواندن فهرست محلی...',null);
+   try{
+     const d=await api('/api/sources/candidates?limit=300&q='+encodeURIComponent(q));
+     renderCandidates(d.results,$('candidateResults'),$('candidateMsg'));
+   }catch(e){setMsg($('candidateMsg'),e.message,false);}
  }
  async function loadSources(){
    setMsg($('sourceMsg'),'در حال بارگذاری منابع...',null);
@@ -558,6 +619,8 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
  $('discoverBtn').addEventListener('click',discover);
  $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
  $('reloadBtn').addEventListener('click',loadSources);
+ $('browseBtn').addEventListener('click',loadCandidates);
+ $('candidateQ').addEventListener('input',()=>{clearTimeout(window.__candTimer);window.__candTimer=setTimeout(loadCandidates,250);});
  $('manualForm').addEventListener('submit',async e=>{
    e.preventDefault();
    try{
