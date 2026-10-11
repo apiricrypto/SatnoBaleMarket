@@ -123,6 +123,20 @@ def init_db():
         )''')
         con.execute("CREATE INDEX IF NOT EXISTS idx_source_registry_enabled ON source_registry(enabled)")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS source_discovery_cache (
+          peer_type TEXT NOT NULL,
+          peer_id TEXT NOT NULL,
+          title TEXT,
+          username TEXT,
+          members_count INTEGER,
+          query_text TEXT,
+          discovered_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY(peer_type, peer_id)
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_source_discovery_cache_username ON source_discovery_cache(username)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_source_discovery_cache_title ON source_discovery_cache(title)")
+        con.execute('''
         CREATE TABLE IF NOT EXISTS sync_runs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           started_at TEXT NOT NULL,
