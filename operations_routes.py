@@ -270,6 +270,39 @@ async def _discover_bale_live(query: str, token: str):
             if len(results) >= 10:
                 break
 
+        # Final bounded fallback: scan the account dialog list. This is the
+        # path that previously found some channels (e.g. when SearchPeer did
+        # not return them). Keep it bounded so the UI never hangs.
+        if len(results) < 10:
+            try:
+                dialogs = await asyncio.wait_for(
+                    client.get_dialogs(limit=500, page_size=50, resolve_names=True),
+                    timeout=8,
+                )
+            except Exception:
+                dialogs = []
+            qnorm = normalize_search_text(query)
+            for dialog in dialogs:
+                title = getattr(dialog, "title", "") or ""
+                title_norm = normalize_search_text(title)
+                peer = getattr(dialog, "peer", None)
+                if peer is None:
+                    continue
+                matched = bool(qnorm and (qnorm in title_norm or title_norm in qnorm))
+                full = None
+                username = None
+                if matched or (" " not in query):
+                    try:
+                        full = await asyncio.wait_for(client.get_full(peer), timeout=2)
+                        username = getattr(full, "username", None)
+                    except Exception:
+                        full = None
+                user_norm = normalize_search_text(username or "")
+                if matched or (qnorm and user_norm and qnorm == user_norm):
+                    add_result(full or dialog, "dialogs")
+                if len(results) >= 10:
+                    break
+
     return results[:10]
 
 
