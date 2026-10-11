@@ -14,6 +14,7 @@ from crm_connector import process_outbox, queue_lead, send_outbox_item
 from db import connect
 from lead_review import save_review
 from source_registry import add_source, delete_source, update_source
+from search_utils import normalize_search_text
 
 load_dotenv(".env.local")
 
@@ -185,44 +186,72 @@ async def source_discover(q: str, user=Depends(require_admin)):
     results = []
     try:
         async with BaleClient(token) as client:
-            # Public username/link: verify exact username first.
-            if query and " " not in query:
-                try:
-                    info = await client.resolve(query)
-                    full = await client.get_full(info.peer)
-                    results.append({
-                        "peer_type": full.peer.type,
-                        "peer_id": full.peer.id,
-                        "title": full.title or query,
-                        "username": full.username,
-                        "members_count": full.members_count,
-                        "match": "username",
-                    })
-                except Exception:
-                    pass
+            qnorm = normalize_search_text(query)
 
-            # Human-friendly title/name search. Do not auto-add a fuzzy match;
-            # return candidates so the operator explicitly chooses.
-            candidates = await client.resolver.search_peer(query, kind="channel", limit=10)
-            for candidate in candidates:
-                full = candidate
-                try:
-                    full = await client.get_full(candidate.peer)
-                except Exception:
-                    pass
+            def add_result(full, match):
                 item = {
                     "peer_type": full.peer.type,
                     "peer_id": full.peer.id,
-                    "title": full.title or candidate.title or query,
+                    "title": getattr(full, "title", None) or query,
                     "username": getattr(full, "username", None),
                     "members_count": getattr(full, "members_count", None),
-                    "match": "title",
+                    "match": match,
                 }
                 if not any(
                     x["peer_type"] == item["peer_type"] and x["peer_id"] == item["peer_id"]
                     for x in results
                 ):
                     results.append(item)
+
+            # 1) Exact public username/link lookup.
+            if query and " " not in query:
+                try:
+                    info = await client.resolve(query)
+                    full = await client.get_full(info.peer)
+                    add_result(full, "username")
+                except Exception:
+                    pass
+
+            # 2) Bale server-side title search.
+            try:
+                candidates = await client.resolver.search_peer(query, kind="channel", limit=10)
+            except Exception:
+                candidates = []
+            for candidate in candidates:
+                full = candidate
+                try:
+                    full = await client.get_full(candidate.peer)
+                except Exception:
+                    pass
+                add_result(full, "title")
+
+            # 3) Fallback over the account's own dialogs. Some public Bale
+            # channels are not returned reliably by SearchPeer but are already
+            # present in dialogs. Match both title and resolved username.
+            if len(results) < 10:
+                async for dialog in client.iter_dialogs(
+                    limit=500,
+                    page_size=50,
+                    resolve_names=True,
+                ):
+                    peer = getattr(dialog, "peer", None)
+                    title = getattr(dialog, "title", "") or ""
+                    if peer is None:
+                        continue
+                    title_norm = normalize_search_text(title)
+                    likely = bool(qnorm and (qnorm in title_norm or title_norm in qnorm))
+                    full = None
+                    if likely or (" " not in query and len(results) < 5):
+                        try:
+                            full = await client.get_full(peer)
+                        except Exception:
+                            full = None
+                    username = getattr(full, "username", None) if full is not None else None
+                    user_norm = normalize_search_text(username or "")
+                    if likely or (qnorm and user_norm and qnorm == user_norm):
+                        add_result(full or dialog, "dialogs")
+                    if len(results) >= 10:
+                        break
     except Exception as exc:
         raise HTTPException(
             status_code=502,
