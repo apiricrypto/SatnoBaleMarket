@@ -6,6 +6,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from bale import BaleClient
+from bale.peer import Peer
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -336,6 +337,65 @@ def _candidate_relevance(row, query):
     return 0
 
 
+@router.post("/api/sources/verify/{peer_type}/{peer_id}")
+async def verify_source_candidate(peer_type: int, peer_id: int, q: str = "", user=Depends(require_admin)):
+    token = (os.getenv("BALE_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=503, detail="BALE_TOKEN روی سرور تنظیم نیست")
+    if peer_type not in (1, 2):
+        raise HTTPException(status_code=400, detail="نوع Peer نامعتبر است")
+    peer = Peer.user(peer_id) if peer_type == 1 else Peer.channel(peer_id)
+    try:
+        async with BaleClient(token) as client:
+            full = await asyncio.wait_for(client.get_full(peer), timeout=6)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="تأیید مشخصات از بله timeout شد")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"تأیید مشخصات ناموفق بود: {type(exc).__name__}")
+
+    title = getattr(full, "title", None) or ""
+    username = (getattr(full, "username", None) or "").lstrip("@") or None
+    members_count = getattr(full, "members_count", None)
+    query = (q or "").strip().lstrip("@")
+    qnorm = normalize_search_text(query)
+    verified_match = False
+    if qnorm:
+        verified_match = (
+            (username and normalize_search_text(username) == qnorm)
+            or qnorm in normalize_search_text(title)
+        )
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    with connect() as con:
+        con.execute(
+            """INSERT INTO source_discovery_cache
+               (peer_type,peer_id,title,username,members_count,query_text,discovered_at,last_seen_at)
+               VALUES(?,?,?,?,?,?,?,?)
+               ON CONFLICT(peer_type,peer_id) DO UPDATE SET
+                 title=excluded.title,
+                 username=excluded.username,
+                 members_count=excluded.members_count,
+                 query_text=excluded.query_text,
+                 last_seen_at=excluded.last_seen_at""",
+            (str(peer_type), str(peer_id), title, username, members_count, query or None, now, now),
+        )
+        registered = con.execute(
+            "SELECT 1 FROM source_registry WHERE peer_type=? AND peer_id=?",
+            (str(peer_type), str(peer_id)),
+        ).fetchone() is not None
+
+    return {
+        "peer_type": peer_type,
+        "peer_id": peer_id,
+        "title": title,
+        "username": username,
+        "members_count": members_count,
+        "verified_match": bool(verified_match),
+        "already_added": registered,
+    }
+
+
 @router.get("/api/sources/candidates")
 def source_candidates(q: str = "", limit: int = 100, user=Depends(require_admin)):
     limit = max(1, min(int(limit), 300))
@@ -594,15 +654,43 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
    container.innerHTML='';
    if(!items.length){setMsg(msgEl,'تطابق مناسبی در فهرست شناسایی‌شده پیدا نشد.',false);return;}
    const strong=items.filter(x=>(x.relevance||0)>=60).length;
-   setMsg(msgEl,strong?strong+' نتیجه مرتبط پیدا شد.':items.length+' نتیجه احتمالی از جستجوی قبلی پیدا شد؛ قبل از افزودن عنوان/ID را بررسی کنید.',strong>0);
+   setMsg(msgEl,strong?strong+' نتیجه مرتبط پیدا شد.':items.length+' نتیجه احتمالی پیدا شد؛ ابتدا مشخصات را از بله تأیید کنید.',strong>0);
    for(const x of items){
      const box=document.createElement('div');box.className='candidate';
-     box.innerHTML='<strong>'+esc(x.title||'-')+'</strong><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.last_seen_at?' • آخرین مشاهده '+esc(x.last_seen_at):'')+'</div>';
-     const btn=document.createElement('button');btn.type='button';
-     if(x.already_added){btn.textContent='قبلاً اضافه شده';btn.disabled=true;}
-     else{btn.className='primary';btn.textContent='افزودن این منبع';btn.addEventListener('click',()=>addCandidate(x,btn,msgEl));}
-     box.appendChild(btn);container.appendChild(box);
+     const strength=(x.relevance||0)>=60?'مرتبط':'نیازمند تأیید';
+     box.innerHTML='<div class="section-head"><strong>'+esc(x.title||'-')+'</strong><span class="pill">'+strength+'</span></div><div class="muted">'+(x.username?'@'+esc(x.username)+' • ':'')+'Peer '+esc(x.peer_id)+(x.last_seen_at?' • آخرین مشاهده '+esc(x.last_seen_at):'')+'</div>';
+     const verify=document.createElement('button');verify.type='button';verify.textContent='تأیید مشخصات از بله';
+     verify.addEventListener('click',()=>verifyCandidate(x,box,msgEl));
+     box.appendChild(verify);
+     if((x.relevance||0)>=60){
+       const btn=document.createElement('button');btn.type='button';
+       if(x.already_added){btn.textContent='قبلاً اضافه شده';btn.disabled=true;}
+       else{btn.className='primary';btn.textContent='افزودن این منبع';btn.addEventListener('click',()=>addCandidate(x,btn,msgEl));}
+       box.appendChild(btn);
+     }
+     container.appendChild(box);
    }
+ }
+ async function verifyCandidate(x,box,msgEl){
+   setMsg(msgEl,'در حال تأیید مشخصات از بله...',null);
+   try{
+     const q=$('candidateQ').value.trim();
+     const d=await api('/api/sources/verify/'+x.peer_type+'/'+x.peer_id+'?q='+encodeURIComponent(q),{method:'POST'});
+     box.querySelector('strong').textContent=d.title||'-';
+     const info=box.querySelector('.muted');
+     info.textContent=(d.username?'@'+d.username+' • ':'')+'Peer '+d.peer_id+(d.members_count?' • '+d.members_count+' عضو':'');
+     if(d.verified_match){
+       setMsg(msgEl,'مشخصات با عبارت جستجو تأیید شد.',true);
+       if(!d.already_added){
+         const btn=document.createElement('button');btn.type='button';btn.className='primary';btn.textContent='افزودن این منبع';
+         btn.addEventListener('click',()=>addCandidate(d,btn,msgEl));box.appendChild(btn);
+       }else{
+         setMsg(msgEl,'این Peer قبلاً اضافه شده؛ مشخصات واقعی آن نمایش داده شد.',true);
+       }
+     }else{
+       setMsg(msgEl,'این Peer با نام/username جستجو شده تطابق ندارد. آن را اضافه نکنید.',false);
+     }
+   }catch(e){setMsg(msgEl,e.message,false);}
  }
  async function loadCandidates(){
    const q=$('candidateQ').value.trim();
