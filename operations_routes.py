@@ -662,11 +662,9 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      const verify=document.createElement('button');verify.type='button';verify.textContent='تأیید مشخصات از بله';
      verify.addEventListener('click',()=>verifyCandidate(x,box,msgEl));
      box.appendChild(verify);
-     if((x.relevance||0)>=60){
-       const btn=document.createElement('button');btn.type='button';
-       if(x.already_added){btn.textContent='قبلاً اضافه شده';btn.disabled=true;}
-       else{btn.className='primary';btn.textContent='افزودن این منبع';btn.addEventListener('click',()=>addCandidate(x,btn,msgEl));}
-       box.appendChild(btn);
+     if(x.already_added){
+       const state=document.createElement('button');state.type='button';state.disabled=true;state.textContent='قبلاً اضافه شده';
+       box.appendChild(state);
      }
      container.appendChild(box);
    }
@@ -679,16 +677,20 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      box.querySelector('strong').textContent=d.title||'-';
      const info=box.querySelector('.muted');
      info.textContent=(d.username?'@'+d.username+' • ':'')+'Peer '+d.peer_id+(d.members_count?' • '+d.members_count+' عضو':'');
+     box.querySelectorAll('.verified-add').forEach(el=>el.remove());
      if(d.verified_match){
        setMsg(msgEl,'مشخصات با عبارت جستجو تأیید شد.',true);
        if(!d.already_added){
-         const btn=document.createElement('button');btn.type='button';btn.className='primary';btn.textContent='افزودن این منبع';
+         const btn=document.createElement('button');btn.type='button';btn.className='primary verified-add';btn.textContent='افزودن منبع تأییدشده';
          btn.addEventListener('click',()=>addCandidate(d,btn,msgEl));box.appendChild(btn);
        }else{
          setMsg(msgEl,'این Peer قبلاً اضافه شده؛ مشخصات واقعی آن نمایش داده شد.',true);
        }
      }else{
-       setMsg(msgEl,'این Peer با نام/username جستجو شده تطابق ندارد. آن را اضافه نکنید.',false);
+       setMsg(msgEl,'این Peer با نام/username جستجو شده تطابق ندارد و امکان افزودن آن غیرفعال شد.',false);
+       box.querySelectorAll('button').forEach(btn=>{
+         if(btn.textContent.includes('افزودن')) btn.remove();
+       });
      }
    }catch(e){setMsg(msgEl,e.message,false);}
  }
