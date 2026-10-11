@@ -212,9 +212,11 @@ def _cached_discovery_matches(query):
         ).fetchall()]
     out = []
     for row in rows:
+        if str(row.get("peer_type")) != "2":
+            continue
         title_norm = normalize_search_text(row.get("title") or "")
         user_norm = normalize_search_text(row.get("username") or "")
-        if qnorm in title_norm or qnorm == user_norm or qnorm in user_norm:
+        if (title_norm and qnorm in title_norm) or (user_norm and qnorm == user_norm):
             row["peer_type"] = int(row["peer_type"])
             row["peer_id"] = int(row["peer_id"])
             row["match"] = "cache"
@@ -314,16 +316,15 @@ def _candidate_relevance(row, query):
     qnorm = normalize_search_text(query or "")
     title_norm = normalize_search_text(row.get("title") or "")
     user_norm = normalize_search_text(row.get("username") or "")
-    query_norm = normalize_search_text(row.get("query_text") or "")
     if not qnorm:
         return 1
     if user_norm and qnorm == user_norm:
         return 100
     if title_norm and qnorm == title_norm:
         return 95
-    if user_norm and (qnorm in user_norm or user_norm in qnorm):
+    if user_norm and qnorm in user_norm:
         return 90
-    if title_norm and (qnorm in title_norm or title_norm in qnorm):
+    if title_norm and qnorm in title_norm:
         return 80
     # Fuzzy title matching is useful for spacing/wording differences, but keep
     # the threshold high enough to avoid showing unrelated Bale search noise.
@@ -341,8 +342,8 @@ async def verify_source_candidate(peer_type: int, peer_id: int, q: str = "", use
     token = (os.getenv("BALE_TOKEN") or "").strip()
     if not token:
         raise HTTPException(status_code=503, detail="BALE_TOKEN روی سرور تنظیم نیست")
-    if peer_type not in (1, 2):
-        raise HTTPException(status_code=400, detail="نوع Peer نامعتبر است")
+    if peer_type != 2:
+        raise HTTPException(status_code=400, detail="فقط کانال یا گروه قابل تأیید است")
     peer = Peer.user(peer_id) if peer_type == 1 else Peer.channel(peer_id)
     try:
         async with BaleClient(token) as client:
@@ -414,6 +415,8 @@ def source_candidates(q: str = "", limit: int = 100, user=Depends(require_admin)
 
     ranked = []
     for row in rows:
+        if str(row.get("peer_type")) != "2":
+            continue
         score = _candidate_relevance(row, q)
         if q and score <= 0:
             continue
@@ -487,7 +490,7 @@ async def source_discover(q: str, user=Depends(require_admin)):
             detail=f"جستجوی بله ناموفق بود: {type(exc).__name__}",
         )
 
-    results = [item for item in results if _candidate_relevance(item, query) >= 60]
+    results = [item for item in results if str(item.get("peer_type")) == "2" and _candidate_relevance(item, query) >= 60]
     if results:
         _cache_discovery_results(query, results)
     return {"query": query, "results": results, "mode": "live"}
