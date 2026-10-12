@@ -401,7 +401,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="nav"><a href="/review">✓ بررسی سرنخ‌ها</a><a href="/sources/manage">☰ مدیریت منابع</a><a href="/status">↻ وضعیت Sync</a><a href="/crm/outbox">⇢ صف CRM</a><a href="/admin/users">⚙ کاربران</a><button id="logoutBtn" type="button">خروج</button></div>
+<div class="nav"><a href="/" aria-current="page">⌕ جست‌وجوی بازار</a><a href="/review">✓ بررسی سرنخ‌ها</a><a href="/sources/manage">☰ مدیریت منابع</a><a href="/status">↻ وضعیت همگام‌سازی</a><a href="/crm/outbox">⇢ صف CRM</a><a href="/admin/users">⚙ کاربران</a><button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="metric-grid"><div class="metric"><div class="label">در حال بارگذاری</div><div class="value">…</div></div></div>
 <div class="searchpanel"><div class="bar">
 <input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
