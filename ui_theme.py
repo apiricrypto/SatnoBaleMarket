@@ -73,4 +73,70 @@ tbody tr:hover td{background:#fbfdfe}
 .kpi-good{color:var(--satno-success)}.kpi-warn{color:var(--satno-warning)}.kpi-bad{color:var(--satno-danger)}
 @media(max-width:1000px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bar{grid-template-columns:1fr 1fr!important}}
 @media(max-width:680px){.wrap{padding:14px!important}.metric-grid{grid-template-columns:1fr}.bar{grid-template-columns:1fr!important}.nav a,.nav button{flex:1 1 auto;text-align:center}.source{grid-template-columns:1fr!important}}
+
+/* Issue #1 — Canva-inspired RTL staff experience; presentation only. */
+:root{
+  --satno-bg:#F5F7FC;--satno-text:#142B4A;--satno-muted:#617189;
+  --satno-line:#DCE5F1;--satno-primary:#2563EB;--satno-primary-2:#1D4ED8;
+  --satno-primary-soft:#EAF1FF;--satno-shadow:0 8px 28px rgba(20,43,74,.055);
+}
+html{scroll-behavior:smooth}
+body{background:radial-gradient(circle at 100% 0,rgba(37,99,235,.055),transparent 36rem),var(--satno-bg)!important;line-height:1.75}
+.wrap{max-width:1440px!important;margin-inline:auto}
+.nav{display:flex!important;flex-wrap:wrap;align-items:center;gap:8px!important;
+  padding:10px!important;border:1px solid var(--satno-line);border-radius:16px;
+  background:#fff;box-shadow:0 3px 16px rgba(20,43,74,.035)}
+.nav a,.nav button{min-height:42px;display:inline-flex;align-items:center;justify-content:center;
+ padding:9px 13px!important;border-radius:11px!important;font-size:13px;font-weight:650;
+ white-space:nowrap;transition:background .17s,border-color .17s,box-shadow .17s}
+.nav a:hover{background:var(--satno-primary-soft)!important;color:#1D4ED8!important}
+.nav a[aria-current="page"]{color:#1D4ED8!important;background:var(--satno-primary-soft)!important;
+ border:1px solid #BED3FF!important}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible,
+[tabindex]:focus-visible{outline:3px solid #93B4FF!important;outline-offset:2px!important}
+button{min-height:42px;cursor:pointer}
+button:disabled{opacity:.55;cursor:not-allowed}
+.metric-grid{gap:14px!important}
+.metric{background:linear-gradient(160deg,#fff,#FBFCFF)!important;border:1px solid var(--satno-line)!important;
+ border-radius:16px!important;padding:18px!important}
+.metric .label{color:var(--satno-muted)!important}
+.metric .value{color:var(--satno-text)!important;font-variant-numeric:tabular-nums}
+.card,.searchpanel,.surface,.box{border-radius:16px!important}
+.section-head{gap:14px;flex-wrap:wrap}
+.bar input,.bar select,.searchbox input{min-width:0}
+.pill{line-height:1.6!important}
+.nav,.metric-grid,.card,.source,.candidate{min-width:0}
+.source,.candidate{overflow-wrap:anywhere}
+a[href],button{touch-action:manipulation}
+@media(min-width:1200px){
+ body.staff-shell .wrap{padding-right:276px!important;max-width:1560px!important}
+ body.staff-shell .nav{position:fixed;z-index:30;right:16px;top:16px;bottom:16px;
+   width:232px;display:flex!important;flex-direction:column;justify-content:flex-start;
+   flex-wrap:nowrap;align-items:stretch;padding:19px 12px!important;overflow:auto;
+   box-shadow:0 8px 30px rgba(20,43,74,.06)}
+ body.staff-shell .nav:before{content:"SATNO  /  بله مارکت";display:block;
+   font-weight:800;color:var(--satno-text);padding:13px 9px 20px;
+   margin-bottom:6px;border-bottom:1px solid var(--satno-line);text-align:center}
+ body.staff-shell .nav a,body.staff-shell .nav button{justify-content:flex-start;text-align:right}
+}
+@media(max-width:767px){
+ .wrap{padding:12px!important}
+ .nav{gap:6px!important;padding:8px!important}
+ .nav a,.nav button{flex:1 1 calc(50% - 6px);min-height:46px;font-size:12px!important}
+ h1{font-size:23px!important}h2{font-size:20px!important}
+ .card,.searchpanel{padding:14px!important}
+ .section-head{align-items:flex-start}
+ .toolbar{flex-wrap:wrap}
+ .actions{flex-wrap:wrap}
+ .metric-grid{grid-template-columns:1fr!important}
+ input,select,textarea{max-width:100%}
+ table{display:block;max-width:100%;overflow-x:auto;white-space:nowrap}
+}
+@media(min-width:768px) and (max-width:1199px){
+ .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(prefers-reduced-motion:reduce){
+ *,*:before,*:after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}
+}
+
 """
