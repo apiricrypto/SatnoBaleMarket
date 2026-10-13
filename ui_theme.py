@@ -190,4 +190,82 @@ body.staff-shell #list .result-card .leadBtn{background:#EAF1FF!important;color:
  body.staff-shell #list .result-card{padding:13px!important}
 }
 
+
+/* SATNO_FOUR_COLUMN_BOARD_V1 — stable GitHub version of the verified live board */
+body.staff-shell #list{
+ display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;
+ gap:13px!important;align-items:start!important;margin-top:18px!important;
+}
+body.staff-shell #list>.empty-state,body.staff-shell #list>.stats{grid-column:1/-1}
+body.staff-shell #list .result-card{
+ --board-accent:#64748b;--board-soft:#f1f5f9;
+ display:flex!important;flex-direction:column!important;min-width:0!important;
+ min-height:290px!important;height:auto!important;position:relative;
+ padding:0!important;margin:0!important;overflow:hidden!important;
+ background:#fff!important;border:1px solid #dfe6f0!important;
+ border-radius:15px!important;box-shadow:0 4px 16px rgba(20,43,74,.06)!important;
+ transition:box-shadow .18s ease,transform .18s ease;
+}
+body.staff-shell #list .result-card:hover{
+ transform:translateY(-2px);box-shadow:0 9px 25px rgba(20,43,74,.12)!important;
+}
+body.staff-shell #list .cat-supplier_seller{--board-accent:#059669;--board-soft:#ecfdf5}
+body.staff-shell #list .cat-stock_availability{--board-accent:#0891b2;--board-soft:#ecfeff}
+body.staff-shell #list .cat-buyer_demand{--board-accent:#2563eb;--board-soft:#eff6ff}
+body.staff-shell #list .cat-inquiry_project{--board-accent:#d97706;--board-soft:#fffbeb}
+body.staff-shell #list .cat-other{--board-accent:#7c3aed;--board-soft:#f5f3ff}
+body.staff-shell #list .result-card::before{
+ content:"\633 \627 \6cc \631 \20 \67e \6cc \627 \645 \200c \647 \627 ";display:block;flex:0 0 auto;
+ padding:9px 13px;text-align:right;background:var(--board-accent);color:#fff;
+ font-size:12px;font-weight:800;line-height:1.6;
+}
+body.staff-shell #list .cat-supplier_seller::before{content:"\641 \631 \648 \634 \646 \62f \647 \20 \2f \20 \62a \623 \645 \6cc \646 \200c \6a9 \646 \646 \62f \647 "}
+body.staff-shell #list .cat-stock_availability::before{content:"\645 \648 \62c \648 \62f \6cc \20 \2f \20 \641 \631 \648 \634 "}
+body.staff-shell #list .cat-buyer_demand::before{content:"\62e \631 \6cc \62f \627 \631 \20 \2f \20 \62a \642 \627 \636 \627 "}
+body.staff-shell #list .cat-inquiry_project::before{content:"\627 \633 \62a \639 \644 \627 \645 \20 \2f \20 \67e \631 \648 \698 \647 "}
+body.staff-shell #list .result-card .meta{
+ display:block;flex:0 0 auto;padding:10px 13px!important;margin:0!important;
+ background:var(--board-soft)!important;color:#334155!important;
+ border-bottom:1px solid #e5eaf2;font-size:11px!important;
+ line-height:1.9!important;overflow-wrap:anywhere;
+}
+body.staff-shell #list .result-card .message{
+ flex:1 1 auto;display:block;min-height:100px;max-height:175px!important;
+ margin:11px 11px 7px!important;padding:10px 11px!important;
+ background:#f8fafc!important;border:1px solid #edf1f7!important;
+ border-radius:10px!important;color:#1e293b!important;font-size:12px!important;
+ line-height:1.85!important;white-space:pre-wrap!important;
+ overflow:auto!important;overflow-wrap:anywhere;
+}
+body.staff-shell #list .result-card>div:not(.meta):not(.message):not(.actions){
+ padding:7px 11px!important;display:flex;flex-wrap:wrap;gap:4px;
+}
+body.staff-shell #list .result-card .tag{
+ padding:3px 7px!important;margin:0!important;font-size:10px!important;
+ border-radius:8px!important;background:#f1f5f9!important;
+ border:1px solid #e2e8f0!important;color:#475569!important;
+}
+body.staff-shell #list .result-card .actions{
+ display:flex!important;align-items:center;justify-content:flex-end;
+ margin-top:auto!important;padding:10px 12px!important;
+ border-top:1px solid #eef2f7!important;
+}
+body.staff-shell #list .result-card .leadBtn{
+ padding:7px 12px!important;color:#1d4ed8!important;background:#eff6ff!important;
+ border-radius:9px!important;font-size:12px!important;font-weight:750!important;
+}
+@media(min-width:1200px) and (max-width:1449px){
+ body.staff-shell #list{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media(min-width:700px) and (max-width:1199px){
+ body.staff-shell #list{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:699px){
+ body.staff-shell #list{grid-template-columns:1fr!important}
+ body.staff-shell #list .result-card .message{font-size:13px!important}
+}
+@media(prefers-reduced-motion:reduce){
+ body.staff-shell #list .result-card{transition:none!important}
+}
+
 """
