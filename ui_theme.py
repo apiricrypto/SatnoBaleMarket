@@ -268,4 +268,37 @@ body.staff-shell #list .result-card .leadBtn{
  body.staff-shell #list .result-card{transition:none!important}
 }
 
+
+/* SATNO_FOUR_COLUMN_BOARD_V2 — consistent board card proportions */
+@media(min-width:1200px){
+ body.staff-shell #list{align-items:stretch!important;grid-auto-rows:minmax(355px,auto)}
+ body.staff-shell #list .result-card{height:100%!important;min-height:355px!important}
+}
+body.staff-shell #list .result-card{border-right:1px solid #dfe6f0!important}
+body.staff-shell #list .result-card::before{
+ min-height:39px;display:flex;align-items:center;justify-content:flex-start;
+ padding:9px 12px!important;font-size:12px!important
+}
+body.staff-shell #list .result-card .meta{
+ min-height:64px;padding:10px 12px!important;font-size:12px!important;
+ line-height:1.8!important;overflow-wrap:anywhere;
+}
+body.staff-shell #list .result-card .message{
+ flex:1 1 auto!important;min-height:116px!important;max-height:170px!important;
+ font-size:13px!important;line-height:1.9!important
+}
+body.staff-shell #list .result-card .actions{
+ margin-top:auto!important;min-height:52px!important;background:#fff
+}
+body.staff-shell #list .result-card .leadBtn{
+ min-height:34px;align-items:center;justify-content:center;
+ text-align:center!important
+}
+body.staff-shell #list .result-card .tag{font-size:11px!important;line-height:1.5}
+body.staff-shell #list .result-card .meta a{overflow-wrap:anywhere}
+@media(max-width:699px){
+ body.staff-shell #list .result-card{height:auto!important;min-height:0!important}
+ body.staff-shell #list .result-card .meta{min-height:0}
+}
+
 """
