@@ -55,8 +55,7 @@ async def main():
             with connect() as con:
                 con.execute("""INSERT INTO source_registry(source_key,title,peer_type,peer_id,score,matched_terms,enabled,discovered_at,last_seen_at)
                     VALUES(?,?,?,?,?,?,1,?,?)
-                    ON CONFLICT(source_key) DO UPDATE SET title=excluded.title,peer_type=excluded.peer_type,peer_id=excluded.peer_id,
-                    score=excluded.score,matched_terms=excluded.matched_terms,last_seen_at=excluded.last_seen_at""",
+                    ON CONFLICT(source_key) DO UPDATE SET last_seen_at=excluded.last_seen_at""",
                     (key,title,str(getattr(peer,"type","unknown")),str(getattr(peer,"id","unknown")),score,json.dumps(matched,ensure_ascii=False),now,now))
             print(f"SOURCE score={score:02d} | {title}")
     # IMPORTANT: An incomplete Bale dialog listing is not authoritative.
