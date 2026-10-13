@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/staff-v05
+      - fix/bale-discovery-hardening-20261013
   pull_request:
     branches:
       - feature/classifier-v03
