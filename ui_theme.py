@@ -139,4 +139,55 @@ a[href],button{touch-action:manipulation}
  *,*:before,*:after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}
 }
 
+
+/* Issue #1 second pass: enforce dashboard sidebar & readable lead cards. */
+@media(min-width:1200px){
+ body.staff-shell{padding-right:248px!important}
+ body.staff-shell .wrap{padding:24px 26px!important;width:100%!important;max-width:1650px!important;margin:0 auto!important}
+ body.staff-shell .nav{position:fixed!important;top:14px!important;right:14px!important;bottom:14px!important;left:auto!important;
+ width:224px!important;max-width:224px!important;display:flex!important;flex-direction:column!important;
+ flex-wrap:nowrap!important;align-items:stretch!important;justify-content:flex-start!important;
+ margin:0!important;padding:16px 10px!important;border-radius:20px!important;background:#fff!important;
+ box-shadow:0 12px 38px rgba(20,43,74,.08)!important;overflow-y:auto!important;z-index:99!important}
+ body.staff-shell .nav>a,body.staff-shell .nav>button{width:100%!important;flex:0 0 auto!important;justify-content:flex-start!important;
+ text-align:right!important;padding:10px 12px!important;min-height:46px!important}
+}
+body.staff-shell .wrap>h1,body.staff-shell .section-head h2{font-size:clamp(23px,2vw,29px)!important}
+body.staff-shell .metric-grid{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;margin:16px 0!important}
+body.staff-shell .metric{min-width:0!important}
+body.staff-shell .metric .value{font-size:clamp(21px,2vw,30px)!important;line-height:1.35!important;overflow-wrap:anywhere}
+body.staff-shell .searchpanel{padding:19px!important;margin:16px 0!important}
+body.staff-shell .searchpanel:before{content:"جست‌وجو و فیلترهای بازار";display:block;font-size:16px;font-weight:800;color:#142B4A;margin-bottom:14px}
+body.staff-shell .searchpanel .bar{display:grid!important;grid-template-columns:minmax(240px,2fr) minmax(170px,1fr) minmax(160px,1fr) minmax(135px,1fr) minmax(135px,1fr)!important;gap:10px!important;align-items:stretch!important}
+body.staff-shell .searchpanel .bar input,body.staff-shell .searchpanel .bar select{width:100%!important;min-height:44px!important}
+body.staff-shell .searchpanel .bar>button{min-width:100px!important;min-height:44px!important}
+body.staff-shell .searchpanel .hint{font-size:12px!important;margin-top:12px}
+body.staff-shell #list{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+body.staff-shell #list>.empty-state,body.staff-shell #list>.stats{grid-column:1/-1}
+body.staff-shell #list .result-card{min-width:0!important;min-height:0!important;height:auto!important;
+ padding:18px!important;margin:0!important;box-shadow:0 4px 20px rgba(20,43,74,.04)!important;overflow:hidden}
+body.staff-shell #list .result-card .meta{font-size:12px!important;color:#64748B!important;line-height:1.8!important;overflow-wrap:anywhere}
+body.staff-shell #list .result-card .message{font-size:14px!important;line-height:1.95!important;max-height:12em;overflow:auto;
+ white-space:pre-wrap!important;overflow-wrap:anywhere;padding:13px!important;border-radius:12px;background:#F8FAFD;
+ border:1px solid #EDF1F7;margin:12px 0!important}
+body.staff-shell #list .result-card .tag{display:inline-block;padding:3px 8px!important;margin:3px 2px!important;border-radius:9px!important;font-size:12px!important}
+body.staff-shell #list .result-card .actions{padding-top:10px!important;border-top:1px solid #EFF2F8!important}
+body.staff-shell #list .result-card.cat-supplier_seller{border-right:4px solid #16A34A!important}
+body.staff-shell #list .result-card.cat-buyer_demand{border-right:4px solid #2563EB!important}
+body.staff-shell #list .result-card.cat-stock_availability{border-right:4px solid #7C3AED!important}
+body.staff-shell #list .result-card.cat-inquiry_project{border-right:4px solid #D97706!important}
+body.staff-shell #list .result-card.cat-other{border-right:4px solid #94A3B8!important}
+body.staff-shell #list .result-card .leadBtn{background:#EAF1FF!important;color:#1D4ED8!important}
+@media(max-width:1199px){
+ body.staff-shell .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ body.staff-shell .searchpanel .bar{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ body.staff-shell #list{grid-template-columns:1fr!important}
+}
+@media(max-width:600px){
+ body.staff-shell .metric-grid{grid-template-columns:1fr!important}
+ body.staff-shell .searchpanel .bar{grid-template-columns:1fr!important}
+ body.staff-shell .nav{display:flex!important}
+ body.staff-shell #list .result-card{padding:13px!important}
+}
+
 """
