@@ -16,7 +16,7 @@ from auth import resolve_session, role_allows
 from crm_connector import process_outbox, queue_lead, send_outbox_item
 from db import connect
 from lead_review import save_review
-from source_registry import add_source, delete_source, update_source
+from source_registry import add_source, delete_source, delete_sources_bulk, update_source
 from search_utils import normalize_search_text
 
 load_dotenv(".env.local")
@@ -71,6 +71,15 @@ class SourceCreate(BaseModel):
     score: int = 0
     matched_terms: Optional[str] = None
     enabled: bool = True
+
+
+class SourceBulkItem(BaseModel):
+    peer_type: int
+    peer_id: int
+
+
+class SourceBulkDelete(BaseModel):
+    items: list[SourceBulkItem]
 
 
 class SourceUpdate(BaseModel):
@@ -516,6 +525,14 @@ def source_delete_by_peer(peer_type: int, peer_id: int, user=Depends(require_adm
     return None
 
 
+@router.post("/api/sources/bulk-delete")
+def sources_bulk_delete(payload: SourceBulkDelete, user=Depends(require_admin)):
+    try:
+        return delete_sources_bulk([x.model_dump() for x in payload.items])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/api/sources")
 def source_create(payload: SourceCreate, user=Depends(require_admin)):
     try:
@@ -604,6 +621,12 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
 
 <div class="card"><div class="section-head"><h3>منابع ثبت‌شده <span id="sourceCount" class="badge">...</span></h3><button id="reloadBtn" type="button">↻ تازه‌سازی</button></div>
 <div class="muted">امتیاز = اولویت Sync. عدد بالاتر زودتر اسکن می‌شود. عادی 50، مهم 80، خیلی مهم 100.</div>
+<div class="toolbar" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <input id="sourceFilter" type="search" placeholder="فیلتر منابع بر اساس عنوان یا Peer ID" style="flex:1;min-width:190px">
+  <label style="display:flex;align-items:center;gap:6px"><input id="selectVisibleSources" type="checkbox"> انتخاب همه موارد نمایش‌داده‌شده</label>
+  <span id="selectedSourceCount" class="muted" aria-live="polite">0 مورد انتخاب شده</span>
+  <button id="bulkDeleteBtn" type="button" class="danger" disabled>حذف انتخاب‌شده‌ها</button>
+</div>
 <div id="sourceMsg" class="status muted">در حال بارگذاری منابع...</div><div id="sourceList"></div></div>
 </div>
 <script>
@@ -710,19 +733,25 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      $('sourceList').innerHTML='';
      for(const x of a){
        const row=document.createElement('div'); row.className='source';
-       row.dataset.pt=x.peer_type; row.dataset.pid=x.peer_id;
-       row.innerHTML='<div><input class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
+       row.dataset.pt=x.peer_type; row.dataset.pid=x.peer_id;row.dataset.title=x.title||'';
+       const pick=document.createElement('label');pick.className='bulk-picker';
+       pick.style.cssText='display:flex;align-items:center;gap:5px;min-width:65px';
+       pick.innerHTML='<input type="checkbox" class="bulk-select"> انتخاب';
+       row.appendChild(pick);
+       row.insertAdjacentHTML('beforeend','<div><input class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
        '<div class="scorebox"><button type="button" class="minus">−10</button><input class="score" type="number" min="0" value="'+esc(x.score||0)+'"><button type="button" class="plus">+10</button></div>'+
        '<label><input class="enabled" type="checkbox" '+(x.enabled?'checked':'')+'> فعال</label>'+
        '<input class="terms" value="'+esc(x.matched_terms||'')+'" placeholder="کلیدواژه‌ها">'+
        '<div class="muted">آخرین مشاهده: '+esc(x.last_seen_at||'-')+'</div>'+
-       '<div><button type="button" class="primary save">ذخیره</button> <button type="button" class="danger del">حذف</button></div>';
+       '<div><button type="button" class="primary save">ذخیره</button> <button type="button" class="danger del">حذف</button></div>');
+       row.querySelector('.bulk-select').addEventListener('change',updateBulkSelection);
        row.querySelector('.minus').addEventListener('click',()=>bump(row,-10));
        row.querySelector('.plus').addEventListener('click',()=>bump(row,10));
        row.querySelector('.save').addEventListener('click',()=>saveSource(row));
        row.querySelector('.del').addEventListener('click',()=>deleteSource(row));
        $('sourceList').appendChild(row);
      }
+     applySourceFilter();
      setMsg($('sourceMsg'),a.length?('نمایش '+a.length+' منبع ثبت‌شده'):'هیچ منبعی در Registry ثبت نشده است.',a.length>0);
    }catch(e){$('sourceCount').textContent='!';setMsg($('sourceMsg'),'خطا در دریافت منابع: '+e.message,false);}
  }
@@ -732,6 +761,40 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      await api('/api/sources/item/'+encodeURIComponent(row.dataset.pt)+'/'+encodeURIComponent(row.dataset.pid),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:row.querySelector('.title').value.trim(),score:Number(row.querySelector('.score').value||0),enabled:row.querySelector('.enabled').checked,matched_terms:row.querySelector('.terms').value.trim()||null})});
      setMsg($('sourceMsg'),'تغییرات ذخیره شد.',true); await loadSources();
    }catch(e){setMsg($('sourceMsg'),'ذخیره ناموفق: '+e.message,false);}
+ }
+ function visibleSources(){
+   return Array.from($('sourceList').querySelectorAll('.source')).filter(row=>row.style.display!=='none');
+ }
+ function updateBulkSelection(){
+   const rows=visibleSources(),selected=Array.from($('sourceList').querySelectorAll('.bulk-select:checked'));
+   $('selectedSourceCount').textContent=selected.length+' مورد انتخاب شده';
+   $('bulkDeleteBtn').disabled=selected.length===0;
+   $('selectVisibleSources').checked=rows.length>0&&rows.every(row=>row.querySelector('.bulk-select').checked);
+   $('selectVisibleSources').indeterminate=rows.some(row=>row.querySelector('.bulk-select').checked)&&!$('selectVisibleSources').checked;
+ }
+ function applySourceFilter(){
+   const q=$('sourceFilter').value.trim().toLocaleLowerCase();
+   $('sourceList').querySelectorAll('.source').forEach(row=>{
+     const hay=(row.dataset.title+' '+row.dataset.pt+' '+row.dataset.pid).toLocaleLowerCase();
+     row.style.display=!q||hay.includes(q)?'':'none';
+   });
+   updateBulkSelection();
+ }
+ async function bulkDeleteSelected(){
+   const selected=Array.from($('sourceList').querySelectorAll('.source')).filter(row=>row.querySelector('.bulk-select').checked);
+   if(!selected.length)return;
+   if(selected.length>100){setMsg($('sourceMsg'),'در هر عملیات حداکثر 100 منبع قابل حذف است.',false);return;}
+   const details=selected.slice(0,10).map(row=>row.dataset.title+' (Peer '+row.dataset.pid+')').join('\\n');
+   if(!confirm('حذف '+selected.length+' منبع انتخاب‌شده از فهرست Sync؟\\nپیام‌های تاریخی حذف نمی‌شوند.\\n\\n'+details+(selected.length>10?'\\n...':'')))return;
+   const confirmed=prompt('برای تأیید نهایی، عدد '+selected.length+' را وارد کنید:');
+   if(confirmed!==String(selected.length)){setMsg($('sourceMsg'),'حذف لغو شد.',null);return;}
+   const button=$('bulkDeleteBtn');button.disabled=true;
+   try{
+     const payload={items:selected.map(row=>({peer_type:Number(row.dataset.pt),peer_id:Number(row.dataset.pid)}))};
+     const result=await api('/api/sources/bulk-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+     await loadSources();
+     setMsg($('sourceMsg'),result.deleted+' منبع حذف شد. پیام‌های تاریخی حفظ شدند.',true);
+   }catch(e){setMsg($('sourceMsg'),'حذف گروهی ناموفق: '+e.message,false);updateBulkSelection();}
  }
  async function deleteSource(row){
    if(!confirm('این منبع از فهرست Sync حذف شود؟ پیام‌های تاریخی حذف نمی‌شوند.')) return;
@@ -744,6 +807,9 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
  $('discoverBtn').addEventListener('click',discover);
  $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
  $('reloadBtn').addEventListener('click',loadSources);
+ $('sourceFilter').addEventListener('input',applySourceFilter);
+ $('selectVisibleSources').addEventListener('change',e=>{visibleSources().forEach(row=>row.querySelector('.bulk-select').checked=e.target.checked);updateBulkSelection();});
+ $('bulkDeleteBtn').addEventListener('click',bulkDeleteSelected);
  $('candidateQ').addEventListener('input',()=>{clearTimeout(window.__candTimer);window.__candTimer=setTimeout(loadCandidates,250);});
  $('manualForm').addEventListener('submit',async e=>{
    e.preventDefault();
