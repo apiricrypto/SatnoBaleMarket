@@ -4,7 +4,7 @@ import unittest
 
 import db
 from lead_review import save_review
-from source_registry import add_source, delete_source, list_sources, update_source
+from source_registry import add_source, delete_source, delete_sources_bulk, list_sources, update_source
 
 
 class ReviewAndSourceTests(unittest.TestCase):
@@ -77,6 +77,42 @@ class ReviewAndSourceTests(unittest.TestCase):
                     (row["source_key"],),
                 ).fetchone()
             )
+
+    def test_bulk_delete_is_exact_and_preserves_messages(self):
+        a = add_source(2, 101, "remove A")
+        b = add_source(2, 102, "remove B")
+        keep = add_source(2, 103, "keep")
+        with db.connect() as con:
+            for key in (a["source_key"], b["source_key"], keep["source_key"]):
+                con.execute("INSERT INTO sync_state(source_key,cursor) VALUES (?,?)", (key, "cursor"))
+        result = delete_sources_bulk([
+            {"peer_type": 2, "peer_id": 101},
+            {"peer_type": 2, "peer_id": 102},
+        ])
+        self.assertEqual(result["deleted"], 2)
+        self.assertEqual([row["source_key"] for row in list_sources()], [keep["source_key"]])
+        with db.connect() as con:
+            self.assertEqual(con.execute("SELECT count(*) FROM messages").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT count(*) FROM sync_state").fetchone()[0], 1)
+
+    def test_bulk_delete_rolls_back_if_any_source_missing(self):
+        add_source(2, 201, "preserve")
+        with self.assertRaisesRegex(ValueError, "source not found"):
+            delete_sources_bulk([
+                {"peer_type": 2, "peer_id": 201},
+                {"peer_type": 2, "peer_id": 999},
+            ])
+        self.assertEqual(len(list_sources()), 1)
+
+    def test_bulk_delete_rejects_duplicates_and_empty(self):
+        add_source(2, 301, "preserve")
+        for items in ([], [
+            {"peer_type": 2, "peer_id": 301},
+            {"peer_type": 2, "peer_id": 301},
+        ]):
+            with self.assertRaises(ValueError):
+                delete_sources_bulk(items)
+        self.assertEqual(len(list_sources()), 1)
 
     def test_duplicate_source_is_rejected(self):
         add_source(2, 555, "A")
