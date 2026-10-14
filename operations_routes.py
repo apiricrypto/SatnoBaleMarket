@@ -597,10 +597,19 @@ body{font-family:system-ui,Tahoma;background:#f4f7fb;margin:0;color:#17212f}
 input,button{box-sizing:border-box;padding:10px;border:1px solid #cfd8e3;border-radius:9px;background:#fff}
 button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5c}.danger{color:#b42318}.muted{color:#667085;font-size:13px}
 .results{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:10px}.candidate{border:1px solid #e5e7eb;border-radius:12px;padding:10px}
-.source{display:grid;grid-template-columns:minmax(220px,2fr) 170px 110px 150px minmax(180px,1fr) auto;gap:8px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0}
-.source:first-child{border-top:0}.scorebox{display:flex;align-items:center;gap:4px}.scorebox input{width:68px;text-align:center}.scorebox button{padding:8px}.status{font-size:13px;margin-top:8px}.ok{color:#067647}.err{color:#b42318}
+.source{display:grid;grid-template-columns:76px minmax(200px,2fr) minmax(154px,170px) 86px minmax(140px,1fr) minmax(150px,1fr) 112px;gap:9px;align-items:center;border-top:1px solid #eef2f6;padding:12px 0;min-width:0}
+.source:first-child{border-top:0}
+.source>*{min-width:0}
+.source .bulk-picker{display:inline-flex!important;align-items:center!important;gap:5px!important;white-space:nowrap!important;font-size:12px!important}
+.source .bulk-picker input{flex:0 0 auto}
+.source .scorebox{display:grid!important;grid-template-columns:38px minmax(60px,1fr) 38px!important;align-items:center!important;gap:3px!important;min-width:0!important;white-space:nowrap!important}
+.source .scorebox input{width:100%!important;min-width:0!important;text-align:center!important;padding:6px 2px!important;font-size:14px!important}
+.source .scorebox button{width:38px!important;min-width:0!important;padding:6px 2px!important;min-height:38px!important;font-size:12px!important}
+.source .save,.source .del{width:100%;margin:2px 0}
+@media(min-width:901px) and (max-width:1499px){.source{grid-template-columns:76px minmax(170px,1.7fr) 160px 84px minmax(120px,1fr) 112px}.source>div:nth-last-child(2){grid-column:2 / 5}}
+.status{font-size:13px;margin-top:8px}.ok{color:#067647}.err{color:#b42318}
 .badge{display:inline-block;background:#eef6f8;padding:3px 8px;border-radius:99px;font-size:12px}
-@media(max-width:900px){.source{grid-template-columns:1fr}.searchbox{grid-template-columns:1fr}.source button{width:100%}}
+@media(max-width:900px){.source{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}.source>div:first-of-type,.source>.terms,.source>div:nth-last-child(2){grid-column:1/-1}.source>.scorebox{grid-column:1/-1;max-width:240px}.source>div:last-child{display:flex;gap:8px;grid-column:1/-1}.source .save,.source .del{width:auto;flex:1}.searchbox{grid-template-columns:1fr}}
 </style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head>
 <body class="staff-shell"><div class="wrap">
 <div class="section-head"><div><h2>مدیریت منابع بله</h2><div class="muted">منابع پایش را خودتان اضافه، ویرایش، اولویت‌بندی یا غیرفعال کنید.</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage" aria-current="page">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div></div>
