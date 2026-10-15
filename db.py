@@ -122,6 +122,18 @@ def init_db():
           last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
         con.execute("CREATE INDEX IF NOT EXISTS idx_source_registry_enabled ON source_registry(enabled)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS source_username_queue (
+          username TEXT PRIMARY KEY,
+          label TEXT,
+          score INTEGER NOT NULL DEFAULT 50,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_code TEXT,
+          resolved_peer_type TEXT,
+          resolved_peer_id TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+
         con.execute('''
         CREATE TABLE IF NOT EXISTS source_discovery_cache (
           peer_type TEXT NOT NULL,
