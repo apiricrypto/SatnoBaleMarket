@@ -1,0 +1,65 @@
+# SATNO Bale Market 0.5.2 — UI/Auth pack
+
+این بسته روی شاخه `feature/login-auth-ui-052-20261015` تکمیل شده است. استقرار Production انجام نشده و موتور Sync، تنظیمات منابع عملیاتی و Task Scheduler تغییر نکرده‌اند. ارسال زنده CRM فعال نشده است.
+
+## تغییرات
+
+- Login دوستونه، تصویر خورشیدی WebP محلی (حدود ۲۰۸ کیلوبایت)، فونت فارسی محلی Vazirmatn، آیکون‌های SVG، حالت انتظار و برچسب دسترس‌پذیر نمایش رمز.
+- ناوبری مشترک سمت‌سرور مطابق نقش، خروج و تغییر رمز در صفحات داخلی؛ محافظت RBAC همچنان در Endpointها برقرار است.
+- صفحه تغییر رمز با پوسته مشترک، حداقل ۱۲ کاراکتر و تأیید رمز فعلی؛ هش PBKDF2 و ابطال همه نشست‌های قبلی حفظ و Cookie پس از موفقیت پاک می‌شود.
+- چیدمان چهارستونه بازار در دسکتاپ (شامل ۱۴۴۰)، دو ستون تبلت و یک ستون موبایل. سبک کارت‌های بازار از فرم‌های بررسی سرنخ جدا شده تا فرم‌های داخلی فشرده نشوند.
+- حذف گروهی منابع از طریق DELETE موجود، انتخاب همه، تأیید کاربر و گزارش موفقیت/شکست جزئی. حذف منابع پیام‌های تاریخی را حذف نمی‌کند.
+- رفع خطای SyntaxError صفحه بررسی سرنخ: رشته HTML در Python اکنون Escapeهای لازم JavaScript را حفظ می‌کند.
+- Empty State بررسی سرنخ، منابع و صف CRM؛ توکن‌های طراحی مشترک برای استفاده آتی CRM.
+
+## اجرای یک‌جای محلی Windows
+
+در یک checkout توسعه جدا از مسیر عملیاتی، روی شاخه بالا اجرا کنید:
+
+```powershell
+.\scripts\start-ui-local.ps1
+```
+
+Python 3.12 یا 3.13 لازم است. اسکریپت محیط مجازی می‌سازد، وابستگی‌ها و تست‌ها را اجرا می‌کند، دیتابیس توسعه `.localdev/market.db` را انتخاب می‌کند، در صورت نبود کاربر رمز Admin را تعاملی می‌گیرد و فقط Uvicorn محلی روی پورت ۸۰۰۵ اجرا می‌کند. هیچ Sync، Scheduler یا اتصال زنده CRM اجرا نمی‌شود. خود اسکریپت PowerShell در محیط Linux این بررسی اجرا نشده است؛ دستورات معادل Python در Linux آزموده شدند.
+
+## Linux / محیط Cloud
+
+```bash
+cd /workspace/SatnoBaleMarket
+python -m venv /workspace/satno-venv
+/workspace/satno-venv/bin/python -m pip install -r requirements.txt httpx==0.28.1
+/workspace/satno-venv/bin/python -m unittest discover -s tests -v
+mkdir -p /workspace/satno-runtime
+export DATABASE_PATH=/workspace/satno-runtime/dev.db
+export SATNO_CRM_LEAD_URL=''
+/workspace/satno-venv/bin/python create_staff_user.py admin --role admin
+/workspace/satno-venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8005
+```
+
+ایجاد Admin فقط برای دیتابیس جدید لازم است؛ رمز را امن و تعاملی وارد کنید. فایل داده یا credential وارد Git نشود. برای HTTPS عملیاتی تنظیم Cookie امن باید مطابق راهنمای استقرار موجود انجام شود؛ این بسته آن تنظیم را تغییر نمی‌دهد.
+
+## پذیرش مرورگری قابل تکرار
+
+```bash
+/workspace/satno-venv/bin/python -m pip install playwright==1.64.0
+/workspace/satno-venv/bin/python tools/verify_ui.py --artifacts /workspace/satno-artifacts/final --chromium /usr/bin/chromium
+```
+
+ابزار به Playwright و Chromium نصب‌شده نیاز دارد (`--chromium` مسیر مرورگر را می‌گیرد). دیتابیس موقت مستقل، کاربران با رمز تصادفی و پیام‌های نمایشی می‌سازد، سرور loopback مجزا را اجرا و پس از تست متوقف می‌کند. داده نمایشی هرگز به دیتابیس عملیاتی تزریق نمی‌شود.
+
+بررسی‌ها: ورود/خروج و خطاهای فرم، تغییر رمز، رد رمز قدیمی، ورود با رمز جدید، ریست مدیر از API موجود در context مرورگر، نقش‌ها، انتخاب/لغو/حذف گروهی منابع و حفظ پیام‌ها؛ هشت صفحه در عرض‌های ۳۷۵، ۷۶۸ و ۱۴۴۰، نبود Overflow افقی، خطای صفحه/Console و درخواست شبکه شکست‌خورده. برای هر صفحه در هر اندازه Screenshot واقعی ذخیره می‌شود.
+
+## محدودیت‌های باقی‌مانده
+
+- لوگوی رسمی و تصاویر مرجع تأییدشده در checkout/پیوست‌های قابل دسترس نبودند. برای اتمام تطبیق برند باید فایل اصلی لوگو و مراجع دوباره پیوست شوند. متن SATNO فعلی لوگوی رسمی محسوب نمی‌شود.
+- API گیت‌هاب برای خواندن/ویرایش توضیحات PR با `Forbidden` پاسخ داد؛ دسترسی Git مستقل بررسی می‌شود. Push شاخه محتوای PR موجود را به‌روز می‌کند، اما ویرایش عنوان/توضیح PR نیازمند دسترسی API است.
+- تست زنده Bale/Sync و CRM و تست Windows Server انجام نشده‌اند؛ این بسته آن‌ها را فعال یا تغییر نداده است.
+- وضعیت CI راه‌دور و بازیابی snapshot در یک task جدید هنوز مستقلاً تأیید نشده است.
+
+## نتیجه اجرای این محیط
+
+- Python 3.12 در Linux؛ `python -m unittest discover -s tests -v`: **۹۱ تست موفق، صفر شکست**.
+- ابزار پذیرش مرورگری: **موفق**؛ ۲۴ Screenshot از ۸ صفحه در ۳ اندازه؛ خطای صفحه/Console و درخواست شکست‌خورده مشاهده نشد.
+- هشت تصویر منتخب دسکتاپ/موبایل Login، Dashboard، Sources و Change Password در [ui-evidence](ui-evidence/) ثبت شده‌اند. همه داده‌ها نمایشی و محلی‌اند. تصاویر تبلت و صفحات دیگر با ابزار پذیرش قابل بازتولید هستند.
+- `pip check`: بدون وابستگی ناسازگار. Health نسخه `0.5.2` را گزارش داد.
+- اسکریپت PowerShell محلی، CI راه‌دور، Windows Server و اتصال واقعی سرویس‌های خارجی **اجرا نشده‌اند**.

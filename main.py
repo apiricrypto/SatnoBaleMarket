@@ -1,6 +1,7 @@
+from ui_theme import staff_document
 import os
 from fastapi import FastAPI, Query, Request, Response, HTTPException, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from db import init_db, connect
@@ -15,7 +16,7 @@ from operations_routes import router as operations_router
 from ui_theme import SATNO_UI_CSS
 import json
 
-app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.1")
+app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.2")
 app.include_router(operations_router)
 
 @app.get("/assets/satno-ui.css")
@@ -97,6 +98,18 @@ def save_message(m: MessageIn):
         inserted_id = cur.lastrowid if cur.rowcount == 1 else None
         return inserted_id, a
 
+@app.get("/assets/Vazirmatn-Regular.woff2")
+def persian_font():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "Vazirmatn-Regular.woff2", media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/assets/login-solar.webp")
+def login_solar_photo():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "login-solar.webp", media_type="image/webp", headers={"Cache-Control": "public, max-age=604800"})
+
+
 @app.get("/assets/login-solar-art.svg")
 def login_solar_art():
     from pathlib import Path
@@ -114,13 +127,14 @@ def login_page(request: Request):
     return HTMLResponse("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ورود | بله مارکت ساتنو</title>
+<title>ورود | بله مارکت ساتنو</title><link rel="icon" href="data:,">
 <style>
+@font-face{font-family:Vazirmatn;src:url("/assets/Vazirmatn-Regular.woff2") format("woff2");font-display:swap}
 :root{font-family:Vazirmatn,Tahoma,"Segoe UI",sans-serif;color:#142b4a}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:#f5f7fc}
 .login-shell{display:grid;grid-template-columns:1fr 1fr;min-height:100vh;direction:ltr}
-.hero{position:relative;color:#fff;direction:rtl;padding:55px clamp(28px,5vw,78px);display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(150deg,rgba(4,43,95,.88),rgba(9,63,127,.54) 55%,rgba(4,43,95,.16)),url('/assets/login-solar-art.svg') center/cover no-repeat;border-radius:0 26px 26px 0}
+.hero{position:relative;color:#fff;direction:rtl;padding:55px clamp(28px,5vw,78px);display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(150deg,rgba(4,43,95,.88),rgba(9,63,127,.54) 55%,rgba(4,43,95,.16)),url('/assets/login-solar.webp') center/cover no-repeat;border-radius:0 26px 26px 0}
 .hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
 .brand{font-weight:900;letter-spacing:.4px;font-size:31px;line-height:1.1;direction:ltr;text-align:left}
 .brand small{display:block;font-size:14px;font-weight:600;letter-spacing:0;direction:rtl;text-align:left;margin-top:5px}
@@ -134,7 +148,7 @@ body{margin:0;min-height:100vh;background:#f5f7fc}
 .hero-foot{font-size:12px;line-height:1.8;color:#e6f1ff;margin-top:35px}
 .form-side{direction:rtl;display:flex;align-items:center;justify-content:center;padding:30px}
 .login-card{background:#fff;border:1px solid #e1e8f3;border-radius:24px;padding:clamp(24px,4vw,44px);width:min(100%,510px);box-shadow:0 18px 60px #122c5410}
-.mark{width:80px;height:80px;border-radius:23px;background:linear-gradient(130deg,#065b80,#13b6b6);color:#fff;display:grid;place-items:center;font-size:40px;font-weight:900;margin:0 auto 22px}
+.login-wordmark{text-align:center;font-size:30px;font-weight:900;letter-spacing:2px;color:#087c91;margin-bottom:24px}.login-wordmark span{display:block;font-size:12px;letter-spacing:0;color:#617189}
 h2{text-align:center;font-size:clamp(23px,2.4vw,31px);margin:0 0 7px}
 .subtitle{text-align:center;color:#71809b;margin:0 0 30px}
 label{font-size:13px;font-weight:700;display:block;margin:14px 0 7px}
@@ -156,13 +170,13 @@ button:disabled{opacity:.62;cursor:wait}
 <section class="hero" aria-label="معرفی بله مارکت ساتنو">
 <div class="hero-top"><div class="brand">SATNO<small>گروه ساتنو</small></div><div class="eyebrow">انرژی هوشمند<br>فرصت‌های بیشتر</div></div>
 <div class="hero-main"><h1>بله مارکت ساتنو</h1><p>پایش هوشمند بازار، از گفتگو تا فرصت</p>
-<div class="features"><div class="feature"><b aria-hidden="true">◎</b>جمع‌آوری گفتگوهای بازار</div>
-<div class="feature"><b aria-hidden="true">▥</b>تحلیل سرنخ‌ها</div>
-<div class="feature"><b aria-hidden="true">▽</b>جست‌وجوی پیشرفته</div>
-<div class="feature"><b aria-hidden="true">♧</b>مدیریت فرصت‌های بازار</div></div></div>
+<div class="features"><div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z M8 8h8 M8 12h5"/></svg></b>جمع‌آوری گفتگوهای بازار</div>
+<div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10h4v10 M10 20V4h4v16 M16 20v-7h4v7"/></svg></b>تحلیل سرنخ‌ها</div>
+<div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg></b>جست‌وجوی پیشرفته</div>
+<div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l6-6 M14 10l6-6 M4 4l16 16 M14 4h6v6 M4 14v6h6"/></svg></b>مدیریت فرصت‌های بازار</div></div></div>
 <div class="hero-foot">SATNO BALE MARKET · From Conversations to Opportunities</div></section>
 <section class="form-side"><form class="login-card" id="loginForm">
-<div class="mark" aria-hidden="true">✓</div><h2>ورود به بله مارکت</h2><p class="subtitle">اطلاعات حساب کاربری خود را وارد کنید</p>
+<div class="login-wordmark">SATNO<span>هوش بازار بله</span></div><h2>ورود به بله مارکت</h2><p class="subtitle">اطلاعات حساب کاربری خود را وارد کنید</p>
 <label for="username">نام کاربری</label><div class="field"><input id="username" name="username" autocomplete="username" required placeholder="نام کاربری" maxlength="100"></div>
 <label for="password">رمز عبور</label><div class="field"><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="رمز عبور"><button id="togglePassword" type="button" class="toggle" aria-label="نمایش رمز عبور" aria-pressed="false">نمایش</button></div>
 <p class="error" id="err" role="alert" aria-live="polite"></p>
@@ -174,19 +188,19 @@ button:disabled{opacity:.62;cursor:wait}
 const form=document.getElementById('loginForm'),btn=document.getElementById('loginBtn'),err=document.getElementById('err'),pwd=document.getElementById('password');
 document.getElementById('togglePassword').addEventListener('click',e=>{
  const visible=pwd.type==='text';pwd.type=visible?'password':'text';
- e.currentTarget.textContent=visible?'نمایش':'پنهان';e.currentTarget.setAttribute('aria-pressed',String(!visible));
+ e.currentTarget.textContent=visible?'نمایش':'پنهان';e.currentTarget.setAttribute('aria-pressed',String(!visible));e.currentTarget.setAttribute('aria-label',visible?'نمایش رمز عبور':'پنهان کردن رمز عبور');
 });
 form.addEventListener('submit',async e=>{
  e.preventDefault();if(btn.disabled)return;err.textContent='';
  const username=document.getElementById('username').value.trim();
  if(!username||!pwd.value){err.textContent='نام کاربری و رمز عبور الزامی است.';return;}
- btn.disabled=true;btn.textContent='در حال ورود…';
+ btn.disabled=true;form.setAttribute('aria-busy','true');btn.textContent='در حال ورود…';
  try{
  const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:pwd.value})});
  if(r.ok){location.replace('/');return}
  err.textContent=r.status===401?'نام کاربری یا رمز عبور نادرست است.':'ورود ناموفق بود. دوباره تلاش کنید.';
  }catch(e){err.textContent='ارتباط با سرور برقرار نشد.'}
- finally{btn.disabled=false;btn.textContent='ورود'}
+ finally{btn.disabled=false;form.removeAttribute('aria-busy');btn.textContent='ورود'}
 });
 </script></body></html>""")
 
@@ -225,7 +239,7 @@ class ChangePasswordIn(BaseModel):
 
 
 @app.post("/api/auth/change-password")
-def change_password(payload: ChangePasswordIn, request: Request):
+def change_password(payload: ChangePasswordIn, request: Request, response: Response):
     user = _session_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="authentication required")
@@ -233,6 +247,7 @@ def change_password(payload: ChangePasswordIn, request: Request):
         change_own_password(user["id"], payload.current_password, payload.new_password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
     return {"ok": True, "reauthentication_required": True}
 
 
@@ -240,14 +255,14 @@ def change_password(payload: ChangePasswordIn, request: Request):
 def change_password_page(request: Request):
     if not _session_user(request):
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    return HTMLResponse(staff_document("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>تغییر رمز عبور | SATNO</title><link rel="stylesheet" href="/assets/satno-ui.css">
-<style>main{max-width:490px;margin:8vh auto;padding:25px;background:white;border:1px solid #dde6f3;border-radius:20px;box-shadow:0 12px 34px #102d4a10}label{display:block;margin:14px 0 5px}input{width:100%;padding:13px}button{margin-top:19px;padding:12px 22px}#status{margin-top:14px;min-height:25px}body{padding:12px}</style></head><body>
-<main><h2>تغییر رمز عبور</h2><p>برای امنیت حساب، رمز فعلی را وارد کنید.</p>
+<style>main{max-width:490px;margin:8vh auto;padding:25px;background:white;border:1px solid #dde6f3;border-radius:20px;box-shadow:0 12px 34px #102d4a10}label{display:block;margin:14px 0 5px}input{width:100%;padding:13px}button{margin-top:19px;padding:12px 22px}#status{margin-top:14px;min-height:25px}body{padding:0}</style></head><body>
+<div class="wrap"><main class="password-card"><h2>تغییر رمز عبور</h2><p>برای امنیت حساب، رمز فعلی را وارد کنید.</p>
 <form id="changeForm"><label for="current">رمز فعلی</label><input id="current" type="password" autocomplete="current-password" required>
 <label for="newpass">رمز جدید (حداقل ۱۲ کاراکتر)</label><input id="newpass" type="password" autocomplete="new-password" minlength="12" required>
 <label for="repeat">تکرار رمز جدید</label><input id="repeat" type="password" autocomplete="new-password" minlength="12" required>
-<button type="submit" id="save">تغییر رمز عبور</button><p id="status" role="alert" aria-live="polite"></p></form><p><a href="/">بازگشت به داشبورد</a></p></main>
+<p class="hint">پس از تغییر رمز، همه نشست‌های قبلی بسته می‌شوند و باید دوباره وارد شوید.</p><button class="primary" type="submit" id="save">تغییر رمز عبور</button><p id="status" role="alert" aria-live="polite"></p></form><p><a href="/">بازگشت به داشبورد</a></p></main></div>
 <script>
 document.getElementById('changeForm').onsubmit=async e=>{
  e.preventDefault();const status=document.getElementById('status'),button=document.getElementById('save');
@@ -261,7 +276,7 @@ document.getElementById('changeForm').onsubmit=async e=>{
  }catch(e){status.textContent='ارتباط با سرور برقرار نشد.'}
  finally{button.disabled=false}
 };
-</script></body></html>""")
+</script></body></html>""", _session_user(request), request.url.path))
 
 
 @app.get("/admin/users", response_class=HTMLResponse)
@@ -271,7 +286,7 @@ def admin_users_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     if not role_allows(user["role"], "users:manage"):
         raise HTTPException(status_code=403, detail="forbidden")
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>مدیریت کاربران | SATNO Bale Market</title>
 <style>
@@ -280,7 +295,7 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 input,select,button{padding:9px;border:1px solid #d7dde7;border-radius:9px;margin:3px}button{cursor:pointer}
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right}
 .err{color:#b42318}a{color:#0866c6;text-decoration:none}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap"><h2>مدیریت کاربران پرسنل</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users" aria-current="page">کاربران</a></div>
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><h2>مدیریت کاربران پرسنل</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users" aria-current="page">کاربران</a></div>
 <form id="create" class="card"><input id="username" placeholder="نام کاربری" required>
 <input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
 <select id="role"><option value="viewer">viewer</option><option value="sales">sales</option><option value="admin">admin</option></select>
@@ -309,7 +324,7 @@ document.getElementById('create').addEventListener('submit',async(ev)=>{
  ev.target.reset(); load();
 });
 load();
-</script></body></html>""")
+</script></body></html>""", _session_user(request), request.url.path))
 
 @app.get("/api/admin/users")
 def admin_list_users(user=Depends(require_users_manage)):
@@ -341,7 +356,7 @@ def admin_update_user(user_id: int, payload: StaffUserUpdate, user=Depends(requi
 
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"satno-bale-market","version":"0.5.1"}
+    return {"status":"ok","service":"satno-bale-market","version":"0.5.2"}
 
 @app.post("/api/messages")
 def create_message(m: MessageIn, user=Depends(require_message_write)):
@@ -437,7 +452,7 @@ def status_page(request: Request):
     user = _session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>وضعیت منابع | SATNO Bale Market</title>
 <style>
@@ -445,7 +460,7 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 .card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right;font-size:13px}
 a{color:#0866c6;text-decoration:none}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap">
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap">
 <h2>وضعیت منابع و Sync</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status" aria-current="page">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><a href="/profile/password">تغییر رمز</a></div>
 <div id="summary" class="card">در حال بارگذاری...</div>
 <div class="card"><table><thead><tr><th>منبع</th><th>نوع</th><th>امتیاز</th><th>فعال</th><th>آخرین مشاهده</th></tr></thead><tbody id="rows"></tbody></table></div>
@@ -468,7 +483,7 @@ async function load(){
  document.getElementById('rows').innerHTML=rows.map(x=>'<tr><td>'+e(x.title||x.source_key)+'</td><td>'+e(x.peer_type||'')+'</td><td>'+e(x.score)+'</td><td>'+(x.enabled?'بله':'خیر')+'</td><td>'+e(x.last_seen_at||'')+'</td></tr>').join('');
 }
 load();
-</script></body></html>""")
+</script></body></html>""", _session_user(request), request.url.path))
 
 @app.post("/api/leads/{message_id}/send")
 def send_lead(message_id: int, user=Depends(require_lead_send)):
@@ -500,7 +515,7 @@ def dashboard(request: Request):
     user = _session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SATNO Bale Market Intelligence</title>
 <style>
@@ -512,7 +527,7 @@ button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;bor
 a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:8px}
 .datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-dashboard-2"></head><body class="staff-shell"><div class="wrap">
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell market-board"><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
 <div class="nav" aria-label="ناوبری اصلی"><a href="/" aria-current="page">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><a href="/profile/password">تغییر رمز</a><button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="metric-grid"><div class="metric"><div class="label">در حال بارگذاری</div><div class="value">…</div></div></div>
@@ -609,4 +624,4 @@ document.getElementById('clearBtn').addEventListener('click',clearFilters);
  el.addEventListener('keydown',e=>{if(e.key==='Enter')load();});
 });
 load();
-</script></body></html>""")
+</script></body></html>""", _session_user(request), request.url.path))

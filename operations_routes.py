@@ -1,3 +1,4 @@
+from ui_theme import staff_document
 import asyncio
 import json
 import os
@@ -550,16 +551,16 @@ def review_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     if not role_allows(user["role"], "lead:send"):
         raise HTTPException(status_code=403, detail="forbidden")
-    return HTMLResponse("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>بررسی سرنخ‌ها</title>
-<style>body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1200px;margin:auto;padding:20px}.card{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}input,select,textarea,button{box-sizing:border-box;width:100%;padding:9px;border:1px solid #d7dde7;border-radius:8px}textarea{min-height:80px}.meta{font-size:12px;color:#667085}.actions{display:flex;gap:8px;margin-top:10px}.actions button{width:auto}@media(max-width:800px){.grid{grid-template-columns:1fr}}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>بررسی سرنخ‌ها</h2><div class="muted">پیام‌های بازار را بازبینی، اصلاح و برای CRM انتخاب کنید.</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review" aria-current="page">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div></div><div class="card toolbar"><select id="filter"><option value="unreviewed">بررسی‌نشده</option><option value="">همه</option><option value="reviewed">بررسی‌شده</option><option value="selected">انتخاب‌شده</option><option value="rejected">ردشده</option></select><button class="primary" onclick="load()">بارگذاری</button><span class="muted">روی هر کارت می‌توانید اطلاعات استخراج‌شده را اصلاح کنید.</span></div><div id="list"></div></div>
+    return HTMLResponse(staff_document(r"""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>بررسی سرنخ‌ها</title>
+<style>body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1200px;margin:auto;padding:20px}.card{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}input,select,textarea,button{box-sizing:border-box;width:100%;padding:9px;border:1px solid #d7dde7;border-radius:8px}textarea{min-height:80px}.meta{font-size:12px;color:#667085}.actions{display:flex;gap:8px;margin-top:10px}.actions button{width:auto}@media(max-width:800px){.grid{grid-template-columns:1fr}}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>بررسی سرنخ‌ها</h2><div class="muted">پیام‌های بازار را بازبینی، اصلاح و برای CRM انتخاب کنید.</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review" aria-current="page">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div></div><div class="card toolbar"><select id="filter"><option value="unreviewed">بررسی‌نشده</option><option value="">همه</option><option value="reviewed">بررسی‌شده</option><option value="selected">انتخاب‌شده</option><option value="rejected">ردشده</option></select><button class="primary" onclick="load()">بارگذاری</button><span class="muted">روی هر کارت می‌توانید اطلاعات استخراج‌شده را اصلاح کنید.</span></div><div id="list"></div></div>
 <script>
 var requestedId=new URLSearchParams(location.search).get('message_id');function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML}function first(a){return a&&a.length?a[0]:''}
-async function load(){var url=requestedId?'/api/review/messages?message_id='+encodeURIComponent(requestedId):'/api/review/messages?limit=50&review_status='+encodeURIComponent(filter.value);var r=await fetch(url),rows=await r.json(),html='';rows.forEach(function(x){html+='<div class="card result-card cat-'+esc(x.reviewed_category||x.category||'other')+'" data-id="'+x.id+'"><div class="section-head"><div><div class="meta">#'+x.id+' • '+esc(x.chat_name||'-')+' • '+esc(x.sender_name||x.sender_id||'-')+' • '+esc(x.sent_at||'')+'</div><div class="message">'+esc(x.text)+'</div></div><span class="pill">'+esc(x.review_status||'بررسی‌نشده')+'</span></div><div class="grid"><select class="category"><option value="supplier_seller">تأمین‌کننده/فروشنده</option><option value="stock_availability">موجودی/فروش</option><option value="buyer_demand">تقاضای خرید</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input class="product" placeholder="محصول" value="'+esc(x.product||first(x.product_types))+'"><input class="brand" placeholder="برند" value="'+esc(x.brand||first(x.brands))+'"><input class="model" placeholder="مدل" value="'+esc(x.model||first(x.models))+'"><input class="power" placeholder="توان" value="'+esc(x.power||first(x.power_values))+'"><input class="capacity" placeholder="ظرفیت" value="'+esc(x.capacity||first(x.energy_values))+'"><input class="price" placeholder="قیمت متن پیام" value="'+esc(x.price||first(x.price_values))+'"><input class="currency" placeholder="واحد قیمت" value="'+esc(x.currency||first(x.currency_values))+'"><input class="location" placeholder="محل" value="'+esc(x.location||first(x.locations))+'"><input class="contact" placeholder="تماس" value="'+esc(x.contact||first(x.phones))+'"><input class="estimated_amount" type="number" min="0" placeholder="مبلغ نرمال‌شده CRM"><input class="estimated_currency" maxlength="3" placeholder="ISO مثل IRR"><select class="priority"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select></div><textarea class="notes" placeholder="یادداشت بررسی">'+esc(x.notes||'')+'</textarea><div class="actions"><button onclick="save(this,\'reviewed\')">ثبت بررسی</button><button onclick="save(this,\'selected\')">انتخاب برای CRM</button><button onclick="save(this,\'rejected\')">رد</button><button onclick="queueLead(this)">قرار دادن در صف CRM</button><span class="result"></span></div></div>'});list.innerHTML=html;rows.forEach(function(x){var c=document.querySelector('[data-id="'+x.id+'"]');c.querySelector('.category').value=x.reviewed_category||x.category||'other';c.querySelector('.priority').value=x.priority||'normal';if(x.estimated_amount!=null)c.querySelector('.estimated_amount').value=x.estimated_amount;if(x.estimated_currency)c.querySelector('.estimated_currency').value=x.estimated_currency})}
+async function load(){var url=requestedId?'/api/review/messages?message_id='+encodeURIComponent(requestedId):'/api/review/messages?limit=50&review_status='+encodeURIComponent(filter.value);var r=await fetch(url),rows=await r.json(),html='';rows.forEach(function(x){html+='<div class="card result-card cat-'+esc(x.reviewed_category||x.category||'other')+'" data-id="'+x.id+'"><div class="section-head"><div><div class="meta">#'+x.id+' • '+esc(x.chat_name||'-')+' • '+esc(x.sender_name||x.sender_id||'-')+' • '+esc(x.sent_at||'')+'</div><div class="message">'+esc(x.text)+'</div></div><span class="pill">'+esc(x.review_status||'بررسی‌نشده')+'</span></div><div class="grid"><select class="category"><option value="supplier_seller">تأمین‌کننده/فروشنده</option><option value="stock_availability">موجودی/فروش</option><option value="buyer_demand">تقاضای خرید</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input class="product" placeholder="محصول" value="'+esc(x.product||first(x.product_types))+'"><input class="brand" placeholder="برند" value="'+esc(x.brand||first(x.brands))+'"><input class="model" placeholder="مدل" value="'+esc(x.model||first(x.models))+'"><input class="power" placeholder="توان" value="'+esc(x.power||first(x.power_values))+'"><input class="capacity" placeholder="ظرفیت" value="'+esc(x.capacity||first(x.energy_values))+'"><input class="price" placeholder="قیمت متن پیام" value="'+esc(x.price||first(x.price_values))+'"><input class="currency" placeholder="واحد قیمت" value="'+esc(x.currency||first(x.currency_values))+'"><input class="location" placeholder="محل" value="'+esc(x.location||first(x.locations))+'"><input class="contact" placeholder="تماس" value="'+esc(x.contact||first(x.phones))+'"><input class="estimated_amount" type="number" min="0" placeholder="مبلغ نرمال‌شده CRM"><input class="estimated_currency" maxlength="3" placeholder="ISO مثل IRR"><select class="priority"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select></div><textarea class="notes" placeholder="یادداشت بررسی">'+esc(x.notes||'')+'</textarea><div class="actions"><button onclick="save(this,\'reviewed\')">ثبت بررسی</button><button onclick="save(this,\'selected\')">انتخاب برای CRM</button><button onclick="save(this,\'rejected\')">رد</button><button onclick="queueLead(this)">قرار دادن در صف CRM</button><span class="result"></span></div></div>'});list.innerHTML=html||'<div class="empty-state">سرنخی با این وضعیت پیدا نشد. فیلتر بررسی را تغییر دهید.</div>';rows.forEach(function(x){var c=document.querySelector('[data-id="'+x.id+'"]');c.querySelector('.category').value=x.reviewed_category||x.category||'other';c.querySelector('.priority').value=x.priority||'normal';if(x.estimated_amount!=null)c.querySelector('.estimated_amount').value=x.estimated_amount;if(x.estimated_currency)c.querySelector('.estimated_currency').value=x.estimated_currency})}
 function body(c,status){function g(s){return c.querySelector('.'+s).value.trim()}return{review_status:status,reviewed_category:g('category'),product:g('product')||null,brand:g('brand')||null,model:g('model')||null,power:g('power')||null,capacity:g('capacity')||null,price:g('price')||null,currency:g('currency')||null,estimated_amount:g('estimated_amount')?Number(g('estimated_amount')):null,estimated_currency:g('estimated_currency')||null,location:g('location')||null,contact:g('contact')||null,priority:g('priority'),notes:g('notes')||null}}
 async function save(btn,status){var c=btn.closest('.card'),id=c.dataset.id,r=await fetch('/api/review/messages/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body(c,status))}),d=await r.json();c.querySelector('.result').textContent=r.ok?'ثبت شد':(d.detail||'خطا');return r.ok}
 async function queueLead(btn){var c=btn.closest('.card'),id=c.dataset.id;if(!(await save(btn,'selected')))return;var r=await fetch('/api/leads/'+id+'/queue',{method:'POST'}),d=await r.json();c.querySelector('.result').textContent=r.ok?('در صف CRM #'+d.outbox_id):(d.detail||'خطا')}
 load();
-</script></body></html>""")
+</script></body></html>""", _user(request), request.url.path))
 
 
 @router.get("/sources/manage", response_class=HTMLResponse)
@@ -569,7 +570,7 @@ def sources_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     if not role_allows(user["role"], "users:manage"):
         raise HTTPException(status_code=403, detail="forbidden")
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>مدیریت منابع بله | SATNO</title>
 <style>
@@ -584,7 +585,7 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
 .source:first-child{border-top:0}.scorebox{display:flex;align-items:center;gap:4px}.scorebox input{width:68px;text-align:center}.scorebox button{padding:8px}.status{font-size:13px;margin-top:8px}.ok{color:#067647}.err{color:#b42318}
 .badge{display:inline-block;background:#eef6f8;padding:3px 8px;border-radius:99px;font-size:12px}
 @media(max-width:900px){.source{grid-template-columns:1fr}.searchbox{grid-template-columns:1fr}.source button{width:100%}}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head>
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head>
 <body class="staff-shell"><div class="wrap">
 <div class="section-head"><div><h2>مدیریت منابع بله</h2><div class="muted">منابع پایش را خودتان اضافه، ویرایش، اولویت‌بندی یا غیرفعال کنید.</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage" aria-current="page">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div></div>
 
@@ -604,7 +605,7 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
 
 <div class="card"><div class="section-head"><h3>منابع ثبت‌شده <span id="sourceCount" class="badge">...</span></h3><button id="reloadBtn" type="button">↻ تازه‌سازی</button></div>
 <div class="muted">امتیاز = اولویت Sync. عدد بالاتر زودتر اسکن می‌شود. عادی 50، مهم 80، خیلی مهم 100.</div>
-<div id="sourceMsg" class="status muted">در حال بارگذاری منابع...</div><div id="sourceList"></div></div>
+<div class="toolbar bulk-toolbar"><label><input id="selectAllSources" type="checkbox"> انتخاب همه منابع</label><button id="deleteSelectedSources" type="button" class="danger" disabled>حذف انتخاب‌شده‌ها</button><span id="selectedCount" aria-live="polite">۰ انتخاب</span></div><div id="sourceMsg" role="status" aria-live="polite" class="status muted">در حال بارگذاری منابع...</div><div id="sourceList"></div></div>
 </div>
 <script>
 (function(){
@@ -707,22 +708,25 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
    try{
      const a=await api('/api/sources');
      $('sourceCount').textContent=String(a.length);
-     $('sourceList').innerHTML='';
+     $('sourceList').innerHTML='';$('selectAllSources').checked=false;
      for(const x of a){
        const row=document.createElement('div'); row.className='source';
        row.dataset.pt=x.peer_type; row.dataset.pid=x.peer_id;
-       row.innerHTML='<div><input class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
+       row.innerHTML='<div><label><input class="source-select" type="checkbox"> انتخاب منبع</label><input aria-label="عنوان منبع" class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
        '<div class="scorebox"><button type="button" class="minus">−10</button><input class="score" type="number" min="0" value="'+esc(x.score||0)+'"><button type="button" class="plus">+10</button></div>'+
        '<label><input class="enabled" type="checkbox" '+(x.enabled?'checked':'')+'> فعال</label>'+
        '<input class="terms" value="'+esc(x.matched_terms||'')+'" placeholder="کلیدواژه‌ها">'+
        '<div class="muted">آخرین مشاهده: '+esc(x.last_seen_at||'-')+'</div>'+
        '<div><button type="button" class="primary save">ذخیره</button> <button type="button" class="danger del">حذف</button></div>';
+       row.querySelector('.source-select').addEventListener('change',updateSelection);
        row.querySelector('.minus').addEventListener('click',()=>bump(row,-10));
        row.querySelector('.plus').addEventListener('click',()=>bump(row,10));
        row.querySelector('.save').addEventListener('click',()=>saveSource(row));
        row.querySelector('.del').addEventListener('click',()=>deleteSource(row));
        $('sourceList').appendChild(row);
      }
+     if(!a.length)$('sourceList').innerHTML='<div class="empty-state">هنوز منبعی ثبت نشده است. از بخش افزودن منبع شروع کنید.</div>';
+     updateSelection();
      setMsg($('sourceMsg'),a.length?('نمایش '+a.length+' منبع ثبت‌شده'):'هیچ منبعی در Registry ثبت نشده است.',a.length>0);
    }catch(e){$('sourceCount').textContent='!';setMsg($('sourceMsg'),'خطا در دریافت منابع: '+e.message,false);}
  }
@@ -741,6 +745,30 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      await loadSources();
    }catch(e){setMsg($('sourceMsg'),'حذف ناموفق: '+e.message,false);}
  }
+ function updateSelection(){
+   const all=Array.from(document.querySelectorAll('.source-select'));
+   const count=all.filter(el=>el.checked).length;
+   $('selectedCount').textContent=count+' انتخاب';
+   $('deleteSelectedSources').disabled=count===0;
+   $('selectAllSources').disabled=all.length===0;
+   $('selectAllSources').checked=all.length>0&&count===all.length;
+   $('selectAllSources').indeterminate=count>0&&count<all.length;
+ }
+ $('selectAllSources').addEventListener('change',()=>{
+   document.querySelectorAll('.source-select').forEach(el=>el.checked=$('selectAllSources').checked);updateSelection();
+ });
+ $('deleteSelectedSources').addEventListener('click',async()=>{
+   const rows=Array.from(document.querySelectorAll('.source')).filter(row=>row.querySelector('.source-select').checked);
+   if(!rows.length||!confirm('حذف '+rows.length+' منبع از فهرست Sync؟ پیام‌های تاریخی محفوظ می‌مانند.'))return;
+   const button=$('deleteSelectedSources');button.disabled=true;
+   let removed=0,failed=0;
+   for(const row of rows){
+     try{await api('/api/sources/item/'+encodeURIComponent(row.dataset.pt)+'/'+encodeURIComponent(row.dataset.pid),{method:'DELETE'});removed++;}
+     catch(e){failed++;}
+   }
+   await loadSources();
+   setMsg($('sourceMsg'),'حذف شد: '+removed+(failed?'؛ ناموفق: '+failed+'؛ منابع باقی‌مانده را دوباره انتخاب کنید.':''),failed===0);
+ });
  $('discoverBtn').addEventListener('click',discover);
  $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
  $('reloadBtn').addEventListener('click',loadSources);
@@ -754,7 +782,7 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
  });
  loadSources();
 })();
-</script></body></html>""")
+</script></body></html>""", _user(request), request.url.path))
 
 
 @router.get("/crm/outbox", response_class=HTMLResponse)
@@ -762,4 +790,4 @@ def crm_outbox_page(request: Request):
     user = _user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRM Outbox</title><style>body{margin:0}.wrap{max-width:1200px;margin:auto;padding:20px}td,th{padding:10px;text-align:right;font-size:13px}button{padding:8px}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>صف اتصال SATNO CRM</h2><div class="muted">وضعیت Leadهای انتخاب‌شده و آمادگی اتصال Alpha 2.2</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox" aria-current="page">صف CRM</a><a href="/admin/users">کاربران</a></div></div><div id="ready" class="metric-grid"></div><div class="card"><table><thead><tr><th>ID</th><th>پیام</th><th>وضعیت</th><th>تلاش</th><th>CRM ID</th><th>HTTP</th><th>خطا</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div></div><script>function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML}async function load(){var a=await fetch('/api/crm/readiness'),b=await fetch('/api/crm/outbox'),rd=await a.json(),o=await b.json();ready.innerHTML='<div class="metric"><div class="label">Connector</div><div class="value">'+esc(rd.connector)+'</div></div><div class="metric"><div class="label">Endpoint</div><div class="value '+(rd.url_configured?'kpi-good':'kpi-warn')+'">'+(rd.url_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">Token</div><div class="value '+(rd.token_configured?'kpi-good':'kpi-warn')+'">'+(rd.token_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">ارسال زنده</div><div class="value '+(rd.live_delivery_enabled?'kpi-good':'kpi-warn')+'">'+(rd.live_delivery_enabled?'فعال':'غیرفعال')+'</div></div>';var h='';o.forEach(function(x){h+='<tr><td>'+x.id+'</td><td>'+x.message_id+'</td><td>'+esc(x.status)+'</td><td>'+(x.attempts||0)+'</td><td>'+esc(x.crm_lead_id||'')+'</td><td>'+esc(x.last_http_status||'')+'</td><td>'+esc(x.last_error||'')+'</td><td><button onclick="sendOne('+x.id+')">ارسال/تلاش مجدد</button></td></tr>'});rows.innerHTML=h}async function sendOne(id){var r=await fetch('/api/crm/outbox/'+id+'/send',{method:'POST'}),d=await r.json();alert(d.status||d.detail||'نتیجه ثبت شد');load()}load();</script></body></html>""")
+    return HTMLResponse(staff_document("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRM Outbox</title><style>body{margin:0}.wrap{max-width:1200px;margin:auto;padding:20px}td,th{padding:10px;text-align:right;font-size:13px}button{padding:8px}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>صف اتصال SATNO CRM</h2><div class="muted">وضعیت Leadهای انتخاب‌شده و آمادگی اتصال Alpha 2.2</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox" aria-current="page">صف CRM</a><a href="/admin/users">کاربران</a></div></div><div id="ready" class="metric-grid"></div><div class="card"><table><thead><tr><th>ID</th><th>پیام</th><th>وضعیت</th><th>تلاش</th><th>CRM ID</th><th>HTTP</th><th>خطا</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div></div><script>function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML}async function load(){var a=await fetch('/api/crm/readiness'),b=await fetch('/api/crm/outbox'),rd=await a.json(),o=await b.json();ready.innerHTML='<div class="metric"><div class="label">Connector</div><div class="value">'+esc(rd.connector)+'</div></div><div class="metric"><div class="label">Endpoint</div><div class="value '+(rd.url_configured?'kpi-good':'kpi-warn')+'">'+(rd.url_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">Token</div><div class="value '+(rd.token_configured?'kpi-good':'kpi-warn')+'">'+(rd.token_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">ارسال زنده</div><div class="value '+(rd.live_delivery_enabled?'kpi-good':'kpi-warn')+'">'+(rd.live_delivery_enabled?'فعال':'غیرفعال')+'</div></div>';var h='';o.forEach(function(x){h+='<tr><td>'+x.id+'</td><td>'+x.message_id+'</td><td>'+esc(x.status)+'</td><td>'+(x.attempts||0)+'</td><td>'+esc(x.crm_lead_id||'')+'</td><td>'+esc(x.last_http_status||'')+'</td><td>'+esc(x.last_error||'')+'</td><td><button onclick="sendOne('+x.id+')">ارسال/تلاش مجدد</button></td></tr>'});rows.innerHTML=h||'<tr><td colspan="8"><div class="empty-state">صف CRM خالی است. سرنخ‌های منتخب پس از بررسی در این بخش نمایش داده می‌شوند.</div></td></tr>'}async function sendOne(id){var r=await fetch('/api/crm/outbox/'+id+'/send',{method:'POST'}),d=await r.json();alert(d.status||d.detail||'نتیجه ثبت شد');load()}load();</script></body></html>""", _user(request), request.url.path))
