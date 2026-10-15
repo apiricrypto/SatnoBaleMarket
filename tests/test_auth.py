@@ -14,6 +14,7 @@ from auth import (
     verify_password,
     list_users,
     update_user,
+    change_own_password,
 )
 
 
@@ -24,6 +25,26 @@ class AuthTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_change_own_password_requires_current_and_revokes_sessions(self):
+        create_user("member", "PreviousPassword123!", role="sales")
+        user = authenticate_user("member", "PreviousPassword123!")
+        token = create_session(user["id"])
+        with self.assertRaisesRegex(ValueError, "incorrect"):
+            change_own_password(user["id"], "wrong", "AnotherPassword123!")
+        self.assertIsNotNone(resolve_session(token))
+        self.assertTrue(change_own_password(user["id"], "PreviousPassword123!", "AnotherPassword123!"))
+        self.assertIsNone(resolve_session(token))
+        self.assertIsNone(authenticate_user("member", "PreviousPassword123!"))
+        self.assertIsNotNone(authenticate_user("member", "AnotherPassword123!"))
+
+    def test_change_own_password_rejects_weak_or_same(self):
+        create_user("member", "PreviousPassword123!", role="viewer")
+        user = authenticate_user("member", "PreviousPassword123!")
+        with self.assertRaises(ValueError):
+            change_own_password(user["id"], "PreviousPassword123!", "short")
+        with self.assertRaises(ValueError):
+            change_own_password(user["id"], "PreviousPassword123!", "PreviousPassword123!")
 
     def test_password_round_trip(self):
         encoded = hash_password("StrongPassword123!")
