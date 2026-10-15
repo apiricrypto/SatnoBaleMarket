@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/staff-v05
+      - feature/login-auth-ui-052-20261015
   pull_request:
     branches:
       - feature/classifier-v03
