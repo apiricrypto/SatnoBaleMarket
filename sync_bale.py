@@ -393,4 +393,11 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Scheduled tasks redirect output to log files on Windows. The default
+    # console encoding may not support Persian source names or symbols.
+    # Keep diagnostic output robust without changing message content in DB.
+    import sys
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     asyncio.run(main())
