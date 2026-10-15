@@ -304,6 +304,9 @@ body.market-board #list .result-card .meta a{overflow-wrap:anywhere}
 
 input[type=checkbox]{width:20px!important;height:20px!important;min-height:0!important;vertical-align:middle;accent-color:var(--satno-primary)}
 .bulk-toolbar{padding:12px 0;border-bottom:1px solid var(--satno-line);margin-bottom:12px}
+.staff-brand{display:flex;flex-direction:column;align-items:center;gap:8px}
+.staff-brand img{display:block;width:74px;height:auto;max-width:100%;object-fit:contain}
+@media(max-width:1199px){.staff-brand{flex-direction:row;justify-content:center;gap:12px}.staff-brand img{width:46px}.staff-brand small{display:block!important;margin:0!important}}
 /* Final pack: shared role-aware shell and stable four-column market board. */
 .staff-brand{font-size:28px;font-weight:850;letter-spacing:2px;color:var(--satno-primary);padding:12px;text-align:center;border-bottom:1px solid var(--satno-line);margin-bottom:12px}
 .staff-brand small{display:block;font-size:12px;letter-spacing:0;color:var(--satno-muted)}
@@ -346,7 +349,7 @@ def staff_document(document, user, current_path):
     if role == 'admin':
         links.append(('/admin/users', 'کاربران', '♙'))
     links.append(('/profile/password', 'تغییر رمز', '⚿'))
-    nav = '<nav class="nav" aria-label="ناوبری اصلی"><div class="staff-brand">SATNO<small>هوش بازار بله</small></div>'
+    nav = '<nav class="nav" aria-label="ناوبری اصلی"><div class="staff-brand"><img src="/assets/satno-logo.jpg" alt="لوگوی رسمی گروه ساتنو" width="1280" height="1218"><div>SATNO<small>هوش بازار بله</small></div></div>'
     for href, label, icon in links:
         active = ' aria-current="page"' if href == current_path else ''
         graphic = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_ICON_PATHS[icon] + '"/></svg>'

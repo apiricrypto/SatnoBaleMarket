@@ -104,6 +104,12 @@ def persian_font():
     return FileResponse(Path(__file__).with_name("assets") / "Vazirmatn-Regular.woff2", media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"})
 
 
+@app.get("/assets/satno-logo.jpg")
+def satno_official_logo():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "satno-logo.jpg", media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
+
+
 @app.get("/assets/login-solar.webp")
 def login_solar_photo():
     from pathlib import Path
@@ -164,19 +170,41 @@ button:disabled{opacity:.62;cursor:wait}
 :focus-visible{outline:3px solid #91baff;outline-offset:3px}
 @media(max-width:950px){.login-shell{grid-template-columns:1fr}.hero{border-radius:0 0 24px 24px;min-height:325px;padding:24px}.hero-main{margin:30px 0 0}.hero-main h1{font-size:35px}.features{margin-top:25px;gap:7px}.feature b{width:44px;height:44px;font-size:20px}.form-side{padding:20px}}
 @media(max-width:490px){.hero{min-height:260px}.hero-top .eyebrow{display:none}.features{grid-template-columns:repeat(2,1fr)}.feature{font-size:11px}.login-card{padding:20px}.form-side{padding:12px}.brand{font-size:24px}}
+
+/* Approved reference: left brand/solar panel, right sign-in card. */
+.brand{display:flex;align-items:center;gap:12px;font-size:28px}
+.brand .brand-logo{width:72px;height:auto;display:block;object-fit:contain;border-radius:12px;background:white;flex-shrink:0}
+.hero-top{direction:ltr}.hero-top .eyebrow{direction:rtl;text-align:right;font-size:13px}
+.hero-top .eyebrow:after{content:"";display:block;width:30px;height:3px;background:#24c5ae;margin:12px 0 0 auto}
+.hero{padding:38px 40px 28px;background-image:linear-gradient(170deg,rgba(1,62,128,.91),rgba(3,76,144,.6) 43%,rgba(3,44,91,.12) 72%,rgba(2,35,78,.72)),url('/assets/login-solar.webp');background-position:center}
+.hero-main{margin:64px 0 auto}.hero-main h1{font-size:clamp(34px,3.8vw,56px);line-height:1.5;margin-bottom:10px}
+.hero-main p{font-size:clamp(16px,1.6vw,24px)}
+.features{margin-top:32px;gap:12px}.feature{font-size:12px}.feature b{border:0;background:#ffffff18;border-radius:13px;width:66px;height:66px}
+.hero-foot{text-align:left;direction:ltr;margin-top:44px;line-height:1.6;font-size:10px}
+.hero-quote{direction:rtl;text-align:right;border-left:3px solid #24c5ae;padding-left:14px;font-size:14px;width:fit-content;margin:0 0 26px;line-height:1.9}
+.form-side{padding:32px 42px}.login-card{max-width:490px;padding:32px;border-radius:20px;box-shadow:0 10px 40px #122c5409}
+.login-wordmark{margin:0 auto 14px;line-height:0}.login-wordmark img{width:88px;height:auto;max-width:100%;display:block;margin:auto;object-fit:contain}
+h2{font-size:26px}.subtitle{font-size:14px;margin-bottom:22px}
+label{margin-top:12px}.field{border-radius:12px}input{height:50px}
+button[type=submit]{height:54px;margin-top:12px}.error{margin:8px 0;min-height:20px}
+.help{font-size:12px;margin-top:16px}.footer{margin-top:20px;padding-top:18px}
+@media(min-width:951px){.hero{min-height:100vh}}
+@media(max-width:950px){.hero{padding:24px;min-height:400px}.hero-main{margin:26px 0 0}.hero-main h1{font-size:34px}.hero-foot{margin-top:28px}.hero-quote{display:none}.hero-foot br{display:none}.form-side{padding:24px}.brand .brand-logo{width:58px}}
+@media(max-width:490px){.hero{padding:20px;min-height:390px}.hero-main h1{font-size:29px}.hero-main p{font-size:15px}.features{margin-top:22px;gap:12px}.feature b{width:42px;height:42px;margin-bottom:4px}.hero-foot{margin-top:20px}.form-side{padding:16px 12px}.login-card{padding:24px 20px}.brand{font-size:23px}.login-wordmark img{width:76px}}
+
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style></head><body>
 <main class="login-shell">
 <section class="hero" aria-label="معرفی بله مارکت ساتنو">
-<div class="hero-top"><div class="brand">SATNO<small>گروه ساتنو</small></div><div class="eyebrow">انرژی هوشمند<br>فرصت‌های بیشتر</div></div>
+<div class="hero-top"><div class="brand"><img class="brand-logo" src="/assets/satno-logo.jpg" alt="لوگوی رسمی گروه ساتنو" width="1280" height="1218"><div>SATNO<small>گروه ساتنو</small></div></div><div class="eyebrow">انرژی هوشمند<br>فرصت‌های بیشتر</div></div>
 <div class="hero-main"><h1>بله مارکت ساتنو</h1><p>پایش هوشمند بازار، از گفتگو تا فرصت</p>
 <div class="features"><div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z M8 8h8 M8 12h5"/></svg></b>جمع‌آوری گفتگوهای بازار</div>
 <div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10h4v10 M10 20V4h4v16 M16 20v-7h4v7"/></svg></b>تحلیل سرنخ‌ها</div>
 <div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg></b>جست‌وجوی پیشرفته</div>
 <div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l6-6 M14 10l6-6 M4 4l16 16 M14 4h6v6 M4 14v6h6"/></svg></b>مدیریت فرصت‌های بازار</div></div></div>
-<div class="hero-foot">SATNO BALE MARKET · From Conversations to Opportunities</div></section>
+<div class="hero-foot"><p class="hero-quote">فرصت‌ها در گفتگوها پنهان‌اند<br>ما آن‌ها را برای شما پیدا می‌کنیم.</p><span dir="ltr">SATNO BALE MARKET<br> From Conversations to Opportunities</span></div></section>
 <section class="form-side"><form class="login-card" id="loginForm">
-<div class="login-wordmark">SATNO<span>هوش بازار بله</span></div><h2>ورود به بله مارکت</h2><p class="subtitle">اطلاعات حساب کاربری خود را وارد کنید</p>
+<div class="login-wordmark"><img src="/assets/satno-logo.jpg" alt="لوگوی رسمی گروه ساتنو" width="1280" height="1218"></div><h2>ورود به بله مارکت</h2><p class="subtitle">اطلاعات حساب کاربری خود را وارد کنید</p>
 <label for="username">نام کاربری</label><div class="field"><input id="username" name="username" autocomplete="username" required placeholder="نام کاربری" maxlength="100"></div>
 <label for="password">رمز عبور</label><div class="field"><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="رمز عبور"><button id="togglePassword" type="button" class="toggle" aria-label="نمایش رمز عبور" aria-pressed="false">نمایش</button></div>
 <p class="error" id="err" role="alert" aria-live="polite"></p>

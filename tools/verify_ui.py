@@ -53,6 +53,13 @@ def check_layout(base, password, changed_password, out, chromium):
             page.on("requestfailed", lambda request: errors.append(request.url))
             page.goto(base + "/login")
             page.wait_for_load_state("networkidle")
+            for logo in page.locator('img[src="/assets/satno-logo.jpg"]').all():
+                assert logo.evaluate(
+                    "img => img.complete && img.naturalWidth === 1280 && img.naturalHeight === 1218"
+                )
+                size = logo.bounding_box()
+                assert abs(size["width"] / size["height"] - 1280 / 1218) < 0.02
+            assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
             page.screenshot(path=str(out / f"login-{width}.png"), full_page=True)
             page.get_by_label("نام کاربری", exact=True).fill("demo-admin")
             page.get_by_label("رمز عبور", exact=True).fill(password)
@@ -70,6 +77,9 @@ def check_layout(base, password, changed_password, out, chromium):
                 page.goto(base + path)
                 page.wait_for_load_state("networkidle")
                 assert page.locator('nav a[href="/profile/password"]').count() == 1
+                assert page.locator('nav img[src="/assets/satno-logo.jpg"]').evaluate(
+                    "img => img.complete && img.naturalWidth === 1280"
+                )
                 assert page.evaluate(
                     "document.documentElement.scrollWidth<=innerWidth"
                 ), f"overflow {name} {width}"
