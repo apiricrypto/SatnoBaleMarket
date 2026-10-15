@@ -9,7 +9,7 @@ from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
-from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user
+from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user, change_own_password
 from crm_connector import queue_lead
 from operations_routes import router as operations_router
 from ui_theme import SATNO_UI_CSS
@@ -97,27 +97,96 @@ def save_message(m: MessageIn):
         inserted_id = cur.lastrowid if cur.rowcount == 1 else None
         return inserted_id, a
 
+@app.get("/assets/login-solar-art.svg")
+def login_solar_art():
+    from pathlib import Path
+    return Response(
+        Path(__file__).with_name("assets").joinpath("login-solar-art.svg").read_bytes(),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     if _session_user(request):
         return RedirectResponse("/", status_code=303)
     return HTMLResponse("""<!doctype html>
-<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ورود پرسنل | SATNO Bale Market</title>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ورود | بله مارکت ساتنو</title>
 <style>
-body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;display:grid;place-items:center;min-height:100vh;margin:0}
-.box{width:min(380px,90vw);background:white;border:1px solid #e6eaf0;border-radius:16px;padding:22px;box-shadow:0 10px 30px #0001}
-input,button{box-sizing:border-box;width:100%;padding:12px;margin:7px 0;border:1px solid #d7dde7;border-radius:10px}
-button{cursor:pointer;background:#102d3d;color:white}.err{color:#b42318;min-height:24px}
-</style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><form class="box" id="loginForm">
-<h2>ورود پرسنل ساتنو</h2><input id="username" autocomplete="username" placeholder="نام کاربری" required>
-<input id="password" type="password" autocomplete="current-password" placeholder="رمز عبور" required>
-<button type="submit">ورود</button><div id="err" class="err"></div></form>
+:root{font-family:Vazirmatn,Tahoma,"Segoe UI",sans-serif;color:#142b4a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#f5f7fc}
+.login-shell{display:grid;grid-template-columns:1fr 1fr;min-height:100vh;direction:ltr}
+.hero{position:relative;color:#fff;direction:rtl;padding:55px clamp(28px,5vw,78px);display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(150deg,rgba(4,43,95,.88),rgba(9,63,127,.54) 55%,rgba(4,43,95,.16)),url('/assets/login-solar-art.svg') center/cover no-repeat;border-radius:0 26px 26px 0}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
+.brand{font-weight:900;letter-spacing:.4px;font-size:31px;line-height:1.1;direction:ltr;text-align:left}
+.brand small{display:block;font-size:14px;font-weight:600;letter-spacing:0;direction:rtl;text-align:left;margin-top:5px}
+.eyebrow{font-weight:700;line-height:1.8}
+.hero-main{margin:auto 0;text-align:center}
+.hero-main h1{font-size:clamp(34px,4vw,65px);margin:0 0 14px;font-weight:900}
+.hero-main p{font-size:clamp(16px,1.6vw,26px);margin:0}
+.features{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:52px}
+.feature{font-size:13px;line-height:2;text-align:center}
+.feature b{display:grid;place-items:center;font-size:29px;font-weight:500;width:68px;height:68px;max-width:100%;border:1px solid #ffffff55;border-radius:16px;background:#ffffff22;margin:0 auto 10px}
+.hero-foot{font-size:12px;line-height:1.8;color:#e6f1ff;margin-top:35px}
+.form-side{direction:rtl;display:flex;align-items:center;justify-content:center;padding:30px}
+.login-card{background:#fff;border:1px solid #e1e8f3;border-radius:24px;padding:clamp(24px,4vw,44px);width:min(100%,510px);box-shadow:0 18px 60px #122c5410}
+.mark{width:80px;height:80px;border-radius:23px;background:linear-gradient(130deg,#065b80,#13b6b6);color:#fff;display:grid;place-items:center;font-size:40px;font-weight:900;margin:0 auto 22px}
+h2{text-align:center;font-size:clamp(23px,2.4vw,31px);margin:0 0 7px}
+.subtitle{text-align:center;color:#71809b;margin:0 0 30px}
+label{font-size:13px;font-weight:700;display:block;margin:14px 0 7px}
+.field{display:flex;align-items:center;border:1px solid #d5e0ef;border-radius:13px;background:#fff;overflow:hidden}
+.field:focus-within{outline:3px solid #cbdcff;border-color:#3979dc}
+input{width:100%;min-width:0;height:54px;border:0;outline:none;padding:0 16px;font:inherit;background:transparent;color:#172b4d}
+.toggle{border:0;background:none;color:#285b9a;cursor:pointer;padding:12px;font:inherit;white-space:nowrap}
+button[type=submit]{width:100%;height:57px;border:0;border-radius:13px;background:linear-gradient(90deg,#0872d1,#0b438a);color:#fff;font:inherit;font-weight:800;font-size:18px;margin-top:23px;cursor:pointer}
+button:disabled{opacity:.62;cursor:wait}
+.error{min-height:24px;color:#b42318;font-size:13px;margin:10px 0}
+.help{color:#667894;font-size:13px;margin-top:20px}
+.footer{text-align:center;border-top:1px solid #e8edf4;padding-top:20px;color:#6c7d96;font-size:12px;margin-top:28px}
+:focus-visible{outline:3px solid #91baff;outline-offset:3px}
+@media(max-width:950px){.login-shell{grid-template-columns:1fr}.hero{border-radius:0 0 24px 24px;min-height:325px;padding:24px}.hero-main{margin:30px 0 0}.hero-main h1{font-size:35px}.features{margin-top:25px;gap:7px}.feature b{width:44px;height:44px;font-size:20px}.form-side{padding:20px}}
+@media(max-width:490px){.hero{min-height:260px}.hero-top .eyebrow{display:none}.features{grid-template-columns:repeat(2,1fr)}.feature{font-size:11px}.login-card{padding:20px}.form-side{padding:12px}.brand{font-size:24px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style></head><body>
+<main class="login-shell">
+<section class="hero" aria-label="معرفی بله مارکت ساتنو">
+<div class="hero-top"><div class="brand">SATNO<small>گروه ساتنو</small></div><div class="eyebrow">انرژی هوشمند<br>فرصت‌های بیشتر</div></div>
+<div class="hero-main"><h1>بله مارکت ساتنو</h1><p>پایش هوشمند بازار، از گفتگو تا فرصت</p>
+<div class="features"><div class="feature"><b aria-hidden="true">◎</b>جمع‌آوری گفتگوهای بازار</div>
+<div class="feature"><b aria-hidden="true">▥</b>تحلیل سرنخ‌ها</div>
+<div class="feature"><b aria-hidden="true">▽</b>جست‌وجوی پیشرفته</div>
+<div class="feature"><b aria-hidden="true">♧</b>مدیریت فرصت‌های بازار</div></div></div>
+<div class="hero-foot">SATNO BALE MARKET · From Conversations to Opportunities</div></section>
+<section class="form-side"><form class="login-card" id="loginForm">
+<div class="mark" aria-hidden="true">✓</div><h2>ورود به بله مارکت</h2><p class="subtitle">اطلاعات حساب کاربری خود را وارد کنید</p>
+<label for="username">نام کاربری</label><div class="field"><input id="username" name="username" autocomplete="username" required placeholder="نام کاربری" maxlength="100"></div>
+<label for="password">رمز عبور</label><div class="field"><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="رمز عبور"><button id="togglePassword" type="button" class="toggle" aria-label="نمایش رمز عبور" aria-pressed="false">نمایش</button></div>
+<p class="error" id="err" role="alert" aria-live="polite"></p>
+<button id="loginBtn" type="submit">ورود</button>
+<p class="help">برای بازیابی رمز عبور با مدیر سامانه تماس بگیرید.</p>
+<div class="footer">گروه ساتنو · بله مارکت ۰.۵.۲</div>
+</form></section></main>
 <script>
-document.getElementById('loginForm').addEventListener('submit',async(e)=>{
- e.preventDefault();const err=document.getElementById('err');err.textContent='';
- const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
- if(r.ok){location.href='/';return;} err.textContent='نام کاربری یا رمز عبور نادرست است.';
+const form=document.getElementById('loginForm'),btn=document.getElementById('loginBtn'),err=document.getElementById('err'),pwd=document.getElementById('password');
+document.getElementById('togglePassword').addEventListener('click',e=>{
+ const visible=pwd.type==='text';pwd.type=visible?'password':'text';
+ e.currentTarget.textContent=visible?'نمایش':'پنهان';e.currentTarget.setAttribute('aria-pressed',String(!visible));
+});
+form.addEventListener('submit',async e=>{
+ e.preventDefault();if(btn.disabled)return;err.textContent='';
+ const username=document.getElementById('username').value.trim();
+ if(!username||!pwd.value){err.textContent='نام کاربری و رمز عبور الزامی است.';return;}
+ btn.disabled=true;btn.textContent='در حال ورود…';
+ try{
+ const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:pwd.value})});
+ if(r.ok){location.replace('/');return}
+ err.textContent=r.status===401?'نام کاربری یا رمز عبور نادرست است.':'ورود ناموفق بود. دوباره تلاش کنید.';
+ }catch(e){err.textContent='ارتباط با سرور برقرار نشد.'}
+ finally{btn.disabled=false;btn.textContent='ورود'}
 });
 </script></body></html>""")
 
@@ -149,6 +218,51 @@ def logout(request: Request, response: Response):
 @app.get("/api/auth/me")
 def auth_me(user=Depends(require_read)):
     return {"username": user["username"], "display_name": user["display_name"], "role": user["role"]}
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/auth/change-password")
+def change_password(payload: ChangePasswordIn, request: Request):
+    user = _session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+    try:
+        change_own_password(user["id"], payload.current_password, payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "reauthentication_required": True}
+
+
+@app.get("/profile/password", response_class=HTMLResponse)
+def change_password_page(request: Request):
+    if not _session_user(request):
+        return RedirectResponse("/login", status_code=303)
+    return HTMLResponse("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تغییر رمز عبور | SATNO</title><link rel="stylesheet" href="/assets/satno-ui.css">
+<style>main{max-width:490px;margin:8vh auto;padding:25px;background:white;border:1px solid #dde6f3;border-radius:20px;box-shadow:0 12px 34px #102d4a10}label{display:block;margin:14px 0 5px}input{width:100%;padding:13px}button{margin-top:19px;padding:12px 22px}#status{margin-top:14px;min-height:25px}body{padding:12px}</style></head><body>
+<main><h2>تغییر رمز عبور</h2><p>برای امنیت حساب، رمز فعلی را وارد کنید.</p>
+<form id="changeForm"><label for="current">رمز فعلی</label><input id="current" type="password" autocomplete="current-password" required>
+<label for="newpass">رمز جدید (حداقل ۱۲ کاراکتر)</label><input id="newpass" type="password" autocomplete="new-password" minlength="12" required>
+<label for="repeat">تکرار رمز جدید</label><input id="repeat" type="password" autocomplete="new-password" minlength="12" required>
+<button type="submit" id="save">تغییر رمز عبور</button><p id="status" role="alert" aria-live="polite"></p></form><p><a href="/">بازگشت به داشبورد</a></p></main>
+<script>
+document.getElementById('changeForm').onsubmit=async e=>{
+ e.preventDefault();const status=document.getElementById('status'),button=document.getElementById('save');
+ const current=document.getElementById('current').value,pass=document.getElementById('newpass').value;
+ if(pass!==document.getElementById('repeat').value){status.textContent='تکرار رمز جدید یکسان نیست.';return}
+ if(pass.length<12){status.textContent='رمز جدید باید حداقل ۱۲ کاراکتر باشد.';return}
+ button.disabled=true;status.textContent='در حال تغییر رمز…';
+ try{const r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:current,new_password:pass})});
+ if(r.ok){status.textContent='رمز تغییر کرد. لطفاً دوباره وارد شوید.';setTimeout(()=>location.replace('/login'),1300)}
+ else {const d=await r.json();status.textContent=d.detail==='current password is incorrect'?'رمز فعلی صحیح نیست.':'تغییر رمز انجام نشد. اطلاعات را بررسی کنید.'}
+ }catch(e){status.textContent='ارتباط با سرور برقرار نشد.'}
+ finally{button.disabled=false}
+};
+</script></body></html>""")
+
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users_page(request: Request):
