@@ -10,6 +10,7 @@ from main import MessageIn, save_message
 from db import connect, init_db
 from sync_state import get_checkpoint, save_checkpoint
 from time_utils import canonical_sent_at
+from sync_guard import SyncFileLock, SyncAlreadyRunning
 
 load_dotenv(".env.local")
 
@@ -153,12 +154,7 @@ def cache_dialog_candidate(dialog):
         )
 
 
-async def main():
-    init_db()
-    from datetime import datetime, timezone
-    started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with connect() as con:
-        run_id=con.execute("INSERT INTO sync_runs(started_at) VALUES (?)",(started_at,)).lastrowid
+async def _sync_once(run_id):
     token = os.getenv("BALE_TOKEN")
     if not token:
         raise SystemExit("BALE_TOKEN پیدا نشد.")
@@ -363,6 +359,36 @@ async def main():
                 dialogs_seen,sync_status,error_code,error_detail,run_id
             ),
         )
+
+
+async def main():
+    """Run with a process-wide lock and always finish the run record."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+    db_path = Path(os.getenv("DATABASE_PATH") or "satno_market.db").resolve()
+    lock_path = os.getenv("BALE_SYNC_LOCK_FILE") or str(db_path) + ".sync.lock"
+    try:
+        with SyncFileLock(lock_path):
+            init_db()
+            started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            with connect() as con:
+                run_id = con.execute(
+                    "INSERT INTO sync_runs(started_at) VALUES (?)", (started_at,)
+                ).lastrowid
+            try:
+                await _sync_once(run_id)
+            except BaseException as exc:
+                finished_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                with connect() as con:
+                    con.execute(
+                        """UPDATE sync_runs
+                           SET finished_at=?,status='failed',error_code=?,error_detail=?
+                           WHERE id=? AND finished_at IS NULL""",
+                        (finished_at, type(exc).__name__, str(exc)[:500], run_id),
+                    )
+                raise
+    except SyncAlreadyRunning:
+        print("SYNC_SKIPPED: existing sync process still running")
 
 
 if __name__ == "__main__":
