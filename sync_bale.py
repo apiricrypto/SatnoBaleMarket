@@ -189,45 +189,18 @@ async def main():
         registry_keys=set(registry_scores)
         registry_count = len(registry_keys)
 
-        async for dialog in client.iter_dialogs(
-            limit=500,
-            page_size=50,
-            resolve_names=True,
-        ):
-            dialogs_seen += 1
-            cache_dialog_candidate(dialog)
-            title = getattr(dialog, "title", "") or ""
-            peer = getattr(dialog, "peer", None)
-            key = get_source_key(peer) if peer is not None else ""
-            if key in registry_keys or any(keyword.lower() in title.lower() for keyword in KEYWORDS):
-                selected.append(dialog)
-
-        # Explicit source score is an operator-controlled priority. Registered
-        # sources always sort ahead of keyword-only discoveries; higher scores
-        # are scanned first when BALE_MAX_CHATS limits the run.
-        selected.sort(
-            key=lambda d: (
-                1 if get_source_key(getattr(d, "peer", None)) in registry_keys else 0,
-                registry_scores.get(get_source_key(getattr(d, "peer", None)), 0),
-            ),
-            reverse=True,
-        )
-
-        if dialogs_seen == 0 and registry_count > 0:
-            fallback = load_registry_targets()
-            if fallback:
-                selected = fallback
-                discovery_mode = "registry-fallback"
-
-        print(f"Dialogs seen: {dialogs_seen}")
+        # Registry-only mode: never scan every dialog or implicitly add
+        # keyword-only sources. Public usernames join this registry only after
+        # exact identity verification in username_sources.
+        selected = load_registry_targets()
+        discovery_mode = "registry-direct"
         print(f"Discovery mode: {discovery_mode}")
-        print(f"Market sources found: {len(selected)}")
-        print(f"Syncing first {min(MAX_CHATS, len(selected))} chats...")
+        print(f"Registered enabled sources: {len(selected)}")
         chats_scanned = min(MAX_CHATS, len(selected))
-
-        sync_status, error_code, error_detail = classify_sync_health(
-            dialogs_seen, registry_count, len(selected) if discovery_mode == "dialogs" else 0
-        )
+        if not selected:
+            sync_status = "degraded"
+            error_code = "no_enabled_sources"
+            error_detail = "No enabled verified sources are configured"
 
         for dialog in selected[:MAX_CHATS]:
             title = getattr(dialog, "title", "") or ""
@@ -246,12 +219,15 @@ async def main():
 
             source_attempts += 1
             try:
-                messages = await client.get_messages(
-                    peer,
-                    limit=MESSAGES_PER_CHAT,
-                    page_size=50,
-                    load_mode=0,
-                    offset_date=-1,
+                messages = await asyncio.wait_for(
+                    client.get_messages(
+                        peer,
+                        limit=MESSAGES_PER_CHAT,
+                        page_size=50,
+                        load_mode=0,
+                        offset_date=-1,
+                    ),
+                    timeout=max(10, int(os.getenv("BALE_CHAT_TIMEOUT_SECONDS", "25"))),
                 )
             except Exception as exc:
                 source_failures += 1
@@ -351,18 +327,15 @@ async def main():
                 f"Checkpoint hit: {reached_checkpoint}"
             )
 
-        if discovery_mode == "registry-fallback":
-            if source_successes > 0:
-                sync_status = "ok"
-                error_code = None
-                error_detail = None
-            else:
-                sync_status = "degraded"
-                error_code = "bale_registry_fallback_failed"
-                error_detail = (
-                    f"LoadDialogs returned zero dialogs and direct registry fallback "
-                    f"failed for {source_failures}/{source_attempts} sources."
-                )
+        # A run that cannot read any configured source is not healthy.
+        if source_attempts and source_successes == 0:
+            sync_status = "degraded"
+            error_code = "all_registered_sources_failed"
+            error_detail = f"Direct reads failed for all {source_attempts} sources"
+        elif source_failures:
+            sync_status = "degraded"
+            error_code = "some_registered_sources_failed"
+            error_detail = f"{source_failures}/{source_attempts} direct source reads failed"
 
     print()
     print("=" * 60)
