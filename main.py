@@ -446,7 +446,7 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right;font-size:13px}
 a{color:#0866c6;text-decoration:none}
 </style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap">
-<h2>وضعیت منابع و Sync</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status" aria-current="page">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div>
+<h2>وضعیت منابع و Sync</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status" aria-current="page">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><a href="/profile/password">تغییر رمز</a></div>
 <div id="summary" class="card">در حال بارگذاری...</div>
 <div class="card"><table><thead><tr><th>منبع</th><th>نوع</th><th>امتیاز</th><th>فعال</th><th>آخرین مشاهده</th></tr></thead><tbody id="rows"></tbody></table></div>
 </div><script>
@@ -514,7 +514,7 @@ a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;c
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
 </style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-dashboard-2"></head><body class="staff-shell"><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="nav" aria-label="ناوبری اصلی"><a href="/" aria-current="page">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><button id="logoutBtn" type="button">خروج</button></div>
+<div class="nav" aria-label="ناوبری اصلی"><a href="/" aria-current="page">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><a href="/profile/password">تغییر رمز</a><button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="metric-grid"><div class="metric"><div class="label">در حال بارگذاری</div><div class="value">…</div></div></div>
 <div class="searchpanel"><div class="bar">
 <input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
