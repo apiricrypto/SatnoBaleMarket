@@ -17,6 +17,7 @@ from crm_connector import process_outbox, queue_lead, send_outbox_item
 from db import connect
 from lead_review import save_review
 from source_registry import add_source, delete_source, delete_sources_bulk, update_source
+from username_sources import enqueue_username, list_username_queue, remove_username, accept_verified_resolution, set_resolution_failure, canonical_username
 from search_utils import normalize_search_text
 
 load_dotenv(".env.local")
@@ -525,6 +526,63 @@ def source_delete_by_peer(peer_type: int, peer_id: int, user=Depends(require_adm
     return None
 
 
+class UsernameSourceInput(BaseModel):
+    username: str
+    label: Optional[str] = None
+    score: int = 50
+
+
+@router.get("/api/sources/usernames")
+def usernames_list(user=Depends(require_admin)):
+    return {"sources": list_username_queue()}
+
+
+@router.post("/api/sources/usernames")
+def usernames_add(payload: UsernameSourceInput, user=Depends(require_admin)):
+    try:
+        return enqueue_username(payload.username, payload.label, payload.score)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/api/sources/usernames/{username}")
+def usernames_delete(username: str, user=Depends(require_admin)):
+    try:
+        return remove_username(username)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/api/sources/usernames/{username}/resolve")
+async def usernames_resolve(username: str, user=Depends(require_admin)):
+    try:
+        username = canonical_username(username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not any(row["username"] == username and row["status"] == "pending" for row in list_username_queue()):
+        raise HTTPException(status_code=404, detail="Username is not pending")
+    token = (os.getenv("BALE_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=503, detail="Bale account token is not configured")
+    try:
+        async with BaleClient(token) as client:
+            resolved = await asyncio.wait_for(client.resolve(username), timeout=6)
+            peer = getattr(resolved, "peer", None)
+            if peer is None:
+                raise ValueError("Resolve returned no Peer")
+            full = await asyncio.wait_for(client.get_full(peer), timeout=6)
+            real_username = getattr(full, "username", "") or getattr(resolved, "username", "")
+            return accept_verified_resolution(
+                username, real_username, peer.type, peer.id, getattr(full, "title", None)
+            )
+    except (asyncio.TimeoutError, LookupError, ValueError) as exc:
+        set_resolution_failure(username, type(exc).__name__)
+        raise HTTPException(status_code=422, detail="Bale did not confirm this username; it remains pending")
+    except Exception as exc:
+        set_resolution_failure(username, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Bale transport error; username remains pending")
+
+
 @router.post("/api/sources/bulk-delete")
 def sources_bulk_delete(payload: SourceBulkDelete, user=Depends(require_admin)):
     try:
@@ -622,6 +680,17 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
   <div class="section-head"><div><strong>جستجو در کانال‌های شناسایی‌شده</strong><div class="muted">این بخش فقط نتایج مرتبط را از Cache محلی Sync نشان می‌دهد و وابسته به SearchPeer زنده نیست.</div></div></div>
   <input id="candidateQ" autocomplete="off" placeholder="بخشی از نام کانال یا username را وارد کنید؛ مثال: partonorpars" style="width:100%;margin-bottom:8px">
   <div id="candidateMsg" class="status muted"></div><div id="candidateResults" class="results"></div>
+</div>
+<div class="card" style="margin-top:14px">
+  <h3>افزودن با شناسه عمومی بله</h3>
+  <p class="muted">@username یا لینک ble.ir؛ منبع تا تأیید شناسه واقعی بله وارد پایش نمی‌شود.</p>
+  <form id="usernameForm" class="toolbar">
+    <input id="usernameValue" required placeholder="@username یا https://ble.ir/username">
+    <input id="usernameLabel" placeholder="عنوان دلخواه">
+    <button type="submit" class="primary">ثبت شناسه عمومی</button>
+  </form>
+  <div id="usernameMsg" class="status muted"></div>
+  <div id="usernameRows"></div>
 </div>
 <details style="margin-top:12px"><summary>افزودن با Peer ID (حالت فنی)</summary>
 <form id="manualForm" style="margin-top:8px"><input id="pt" type="number" value="2" placeholder="Peer type"><input id="pid" type="number" placeholder="Peer ID" required><input id="manualTitle" placeholder="عنوان"><input id="manualScore" type="number" value="50" placeholder="امتیاز"><button class="primary">افزودن</button></form>
@@ -813,6 +882,35 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      await loadSources();
    }catch(e){setMsg($('sourceMsg'),'حذف ناموفق: '+e.message,false);}
  }
+ async function loadUsernames(){
+  try{
+    const d=await api('/api/sources/usernames');
+    $('usernameRows').innerHTML='';
+    for(const x of d.sources){
+      const box=document.createElement('div');box.className='candidate';
+      box.innerHTML='<strong>@'+esc(x.username)+'</strong> '+esc(x.label||'')+
+        '<div class="muted">وضعیت: '+esc(x.status)+(x.error_code?' • '+esc(x.error_code):'')+'</div>';
+      if(x.status==='pending'){
+        const b=document.createElement('button');b.type='button';b.textContent='تلاش برای تأیید';
+        b.onclick=async()=>{b.disabled=true;try{await api('/api/sources/usernames/'+encodeURIComponent(x.username)+'/resolve',{method:'POST'});setMsg($('usernameMsg'),'شناسه تأیید و به منابع ثبت‌شده اضافه شد.',true);await loadSources();}catch(e){setMsg($('usernameMsg'),e.message,false)}finally{await loadUsernames()}};
+        box.appendChild(b);
+      }
+      const del=document.createElement('button');del.type='button';del.textContent='حذف از صف شناسه‌ها';
+      del.onclick=async()=>{if(!confirm('این شناسه از صف پیگیری حذف شود؟'))return;try{await api('/api/sources/usernames/'+encodeURIComponent(x.username),{method:'DELETE'});await loadUsernames();}catch(e){setMsg($('usernameMsg'),e.message,false)}};
+      box.appendChild(del);$('usernameRows').appendChild(box);
+    }
+  }catch(e){setMsg($('usernameMsg'),e.message,false)}
+ }
+ $('usernameForm').addEventListener('submit',async e=>{
+   e.preventDefault();
+   try{
+     const body={username:$('usernameValue').value.trim(),label:$('usernameLabel').value.trim()};
+     await api('/api/sources/usernames',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+     setMsg($('usernameMsg'),'ثبت شد؛ در انتظار تأیید بله است.',true);
+     e.target.reset();await loadUsernames();
+   }catch(err){setMsg($('usernameMsg'),err.message,false)}
+ });
+ loadUsernames();
  $('discoverBtn').addEventListener('click',discover);
  $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
  $('reloadBtn').addEventListener('click',loadSources);
