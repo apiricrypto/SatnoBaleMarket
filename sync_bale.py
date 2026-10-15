@@ -155,6 +155,7 @@ def cache_dialog_candidate(dialog):
 
 
 async def _sync_once(run_id):
+    from datetime import datetime, timezone
     token = os.getenv("BALE_TOKEN")
     if not token:
         raise SystemExit("BALE_TOKEN پیدا نشد.")
