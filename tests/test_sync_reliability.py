@@ -20,6 +20,39 @@ class SyncReliabilityTests(unittest.TestCase):
             with SyncFileLock(path):
                 pass
 
+    def test_successful_run_finalizes_timestamp(self):
+        from datetime import datetime, timezone
+        with tempfile.TemporaryDirectory() as temp:
+            old_db = db.DB_PATH
+            db.DB_PATH = os.path.join(temp, "ok.db")
+            try:
+                db.init_db()
+                with db.connect() as con:
+                    run_id = con.execute(
+                        "INSERT INTO sync_runs(started_at) VALUES(?)",
+                        ("2026-10-15T00:00:00Z",),
+                    ).lastrowid
+                # A successful worker requires a time formatter in its own scope.
+                # Its outer caller's imports do not supply this global.
+                with patch.object(sync_bale, "BaleClient") as mock_client:
+                    async def enter():
+                        class EmptyClient:
+                            async def get_messages(self, *args, **kwargs):
+                                return []
+                        return EmptyClient()
+                    mock_client.return_value.__aenter__.side_effect = enter
+                    mock_client.return_value.__aexit__.return_value = False
+                    with patch.dict(os.environ, {"BALE_TOKEN": "test-only"}):
+                        asyncio.run(sync_bale._sync_once(run_id))
+                with db.connect() as con:
+                    row = con.execute(
+                        "SELECT status,finished_at FROM sync_runs WHERE id=?", (run_id,)
+                    ).fetchone()
+                self.assertEqual(row["status"], "degraded")
+                self.assertIsNotNone(row["finished_at"])
+            finally:
+                db.DB_PATH = old_db
+
     def test_failed_run_is_closed_on_exception(self):
         with tempfile.TemporaryDirectory() as temp:
             old_db = db.DB_PATH
