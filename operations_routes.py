@@ -17,7 +17,8 @@ from auth import resolve_session, role_allows
 from crm_connector import process_outbox, queue_lead, send_outbox_item
 from db import connect
 from lead_review import save_review
-from source_registry import add_source, delete_source, update_source
+from source_registry import add_source, delete_source, delete_sources_bulk, update_source
+from username_sources import enqueue_username, list_username_queue, remove_username, accept_verified_resolution, set_resolution_failure, canonical_username
 from search_utils import normalize_search_text
 
 load_dotenv(".env.local")
@@ -72,6 +73,15 @@ class SourceCreate(BaseModel):
     score: int = 0
     matched_terms: Optional[str] = None
     enabled: bool = True
+
+
+class SourceBulkItem(BaseModel):
+    peer_type: int
+    peer_id: int
+
+
+class SourceBulkDelete(BaseModel):
+    items: list[SourceBulkItem]
 
 
 class SourceUpdate(BaseModel):
@@ -517,6 +527,71 @@ def source_delete_by_peer(peer_type: int, peer_id: int, user=Depends(require_adm
     return None
 
 
+class UsernameSourceInput(BaseModel):
+    username: str
+    label: Optional[str] = None
+    score: int = 50
+
+
+@router.get("/api/sources/usernames")
+def usernames_list(user=Depends(require_admin)):
+    return {"sources": list_username_queue()}
+
+
+@router.post("/api/sources/usernames")
+def usernames_add(payload: UsernameSourceInput, user=Depends(require_admin)):
+    try:
+        return enqueue_username(payload.username, payload.label, payload.score)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/api/sources/usernames/{username}")
+def usernames_delete(username: str, user=Depends(require_admin)):
+    try:
+        return remove_username(username)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/api/sources/usernames/{username}/resolve")
+async def usernames_resolve(username: str, user=Depends(require_admin)):
+    try:
+        username = canonical_username(username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not any(row["username"] == username and row["status"] == "pending" for row in list_username_queue()):
+        raise HTTPException(status_code=404, detail="Username is not pending")
+    token = (os.getenv("BALE_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=503, detail="Bale account token is not configured")
+    try:
+        async with BaleClient(token) as client:
+            resolved = await asyncio.wait_for(client.resolve(username), timeout=6)
+            peer = getattr(resolved, "peer", None)
+            if peer is None:
+                raise ValueError("Resolve returned no Peer")
+            full = await asyncio.wait_for(client.get_full(peer), timeout=6)
+            real_username = getattr(full, "username", "") or getattr(resolved, "username", "")
+            return accept_verified_resolution(
+                username, real_username, peer.type, peer.id, getattr(full, "title", None)
+            )
+    except (asyncio.TimeoutError, LookupError, ValueError) as exc:
+        set_resolution_failure(username, type(exc).__name__)
+        raise HTTPException(status_code=422, detail="Bale did not confirm this username; it remains pending")
+    except Exception as exc:
+        set_resolution_failure(username, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Bale transport error; username remains pending")
+
+
+@router.post("/api/sources/bulk-delete")
+def sources_bulk_delete(payload: SourceBulkDelete, user=Depends(require_admin)):
+    try:
+        return delete_sources_bulk([x.model_dump() for x in payload.items])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/api/sources")
 def source_create(payload: SourceCreate, user=Depends(require_admin)):
     try:
@@ -581,10 +656,19 @@ body{font-family:system-ui,Tahoma;background:#f4f7fb;margin:0;color:#17212f}
 input,button{box-sizing:border-box;padding:10px;border:1px solid #cfd8e3;border-radius:9px;background:#fff}
 button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5c}.danger{color:#b42318}.muted{color:#667085;font-size:13px}
 .results{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:10px}.candidate{border:1px solid #e5e7eb;border-radius:12px;padding:10px}
-.source{display:grid;grid-template-columns:minmax(220px,2fr) 170px 110px 150px minmax(180px,1fr) auto;gap:8px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0}
-.source:first-child{border-top:0}.scorebox{display:flex;align-items:center;gap:4px}.scorebox input{width:68px;text-align:center}.scorebox button{padding:8px}.status{font-size:13px;margin-top:8px}.ok{color:#067647}.err{color:#b42318}
+.source{display:grid;grid-template-columns:76px minmax(200px,2fr) minmax(154px,170px) 86px minmax(140px,1fr) minmax(150px,1fr) 112px;gap:9px;align-items:center;border-top:1px solid #eef2f6;padding:12px 0;min-width:0}
+.source:first-child{border-top:0}
+.source>*{min-width:0}
+.source .bulk-picker{display:inline-flex!important;align-items:center!important;gap:5px!important;white-space:nowrap!important;font-size:12px!important}
+.source .bulk-picker input{flex:0 0 auto}
+.source .scorebox{display:grid!important;grid-template-columns:38px minmax(60px,1fr) 38px!important;align-items:center!important;gap:3px!important;min-width:0!important;white-space:nowrap!important}
+.source .scorebox input{width:100%!important;min-width:0!important;text-align:center!important;padding:6px 2px!important;font-size:14px!important}
+.source .scorebox button{width:38px!important;min-width:0!important;padding:6px 2px!important;min-height:38px!important;font-size:12px!important}
+.source .save,.source .del{width:100%;margin:2px 0}
+@media(min-width:901px) and (max-width:1499px){.source{grid-template-columns:76px minmax(170px,1.7fr) 160px 84px minmax(120px,1fr) 112px}.source>div:nth-last-child(2){grid-column:2 / 5}}
+.status{font-size:13px;margin-top:8px}.ok{color:#067647}.err{color:#b42318}
 .badge{display:inline-block;background:#eef6f8;padding:3px 8px;border-radius:99px;font-size:12px}
-@media(max-width:900px){.source{grid-template-columns:1fr}.searchbox{grid-template-columns:1fr}.source button{width:100%}}
+@media(max-width:900px){.source{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}.source>div:first-of-type,.source>.terms,.source>div:nth-last-child(2){grid-column:1/-1}.source>.scorebox{grid-column:1/-1;max-width:240px}.source>div:last-child{display:flex;gap:8px;grid-column:1/-1}.source .save,.source .del{width:auto;flex:1}.searchbox{grid-template-columns:1fr}}
 </style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head>
 <body class="staff-shell"><div class="wrap">
 <div class="section-head"><div><h2>مدیریت منابع بله</h2><div class="muted">منابع پایش را خودتان اضافه، ویرایش، اولویت‌بندی یا غیرفعال کنید.</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage" aria-current="page">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div></div>
@@ -598,6 +682,17 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
   <input id="candidateQ" autocomplete="off" placeholder="بخشی از نام کانال یا username را وارد کنید؛ مثال: partonorpars" style="width:100%;margin-bottom:8px">
   <div id="candidateMsg" class="status muted"></div><div id="candidateResults" class="results"></div>
 </div>
+<div class="card" style="margin-top:14px">
+  <h3>افزودن با شناسه عمومی بله</h3>
+  <p class="muted">@username یا لینک ble.ir؛ منبع تا تأیید شناسه واقعی بله وارد پایش نمی‌شود.</p>
+  <form id="usernameForm" class="toolbar">
+    <input id="usernameValue" required placeholder="@username یا https://ble.ir/username">
+    <input id="usernameLabel" placeholder="عنوان دلخواه">
+    <button type="submit" class="primary">ثبت شناسه عمومی</button>
+  </form>
+  <div id="usernameMsg" class="status muted"></div>
+  <div id="usernameRows"></div>
+</div>
 <details style="margin-top:12px"><summary>افزودن با Peer ID (حالت فنی)</summary>
 <form id="manualForm" style="margin-top:8px"><input id="pt" type="number" value="2" placeholder="Peer type"><input id="pid" type="number" placeholder="Peer ID" required><input id="manualTitle" placeholder="عنوان"><input id="manualScore" type="number" value="50" placeholder="امتیاز"><button class="primary">افزودن</button></form>
 </details>
@@ -605,7 +700,13 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
 
 <div class="card"><div class="section-head"><h3>منابع ثبت‌شده <span id="sourceCount" class="badge">...</span></h3><button id="reloadBtn" type="button">↻ تازه‌سازی</button></div>
 <div class="muted">امتیاز = اولویت Sync. عدد بالاتر زودتر اسکن می‌شود. عادی 50، مهم 80، خیلی مهم 100.</div>
-<div class="toolbar bulk-toolbar"><label><input id="selectAllSources" type="checkbox"> انتخاب همه منابع</label><button id="deleteSelectedSources" type="button" class="danger" disabled>حذف انتخاب‌شده‌ها</button><span id="selectedCount" aria-live="polite">۰ انتخاب</span></div><div id="sourceMsg" role="status" aria-live="polite" class="status muted">در حال بارگذاری منابع...</div><div id="sourceList"></div></div>
+<div class="toolbar" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <input id="sourceFilter" type="search" placeholder="فیلتر منابع بر اساس عنوان یا Peer ID" style="flex:1;min-width:190px">
+  <label style="display:flex;align-items:center;gap:6px"><input id="selectVisibleSources" type="checkbox"> انتخاب همه موارد نمایش‌داده‌شده</label>
+  <span id="selectedSourceCount" class="muted" aria-live="polite">0 مورد انتخاب شده</span>
+  <button id="bulkDeleteBtn" type="button" class="danger" disabled>حذف انتخاب‌شده‌ها</button>
+</div>
+<div id="sourceMsg" class="status muted">در حال بارگذاری منابع...</div><div id="sourceList"></div></div>
 </div>
 <script>
 (function(){
@@ -708,17 +809,21 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
    try{
      const a=await api('/api/sources');
      $('sourceCount').textContent=String(a.length);
-     $('sourceList').innerHTML='';$('selectAllSources').checked=false;
+     $('sourceList').innerHTML='';
      for(const x of a){
        const row=document.createElement('div'); row.className='source';
-       row.dataset.pt=x.peer_type; row.dataset.pid=x.peer_id;
-       row.innerHTML='<div><label><input class="source-select" type="checkbox"> انتخاب منبع</label><input aria-label="عنوان منبع" class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
+       row.dataset.pt=x.peer_type; row.dataset.pid=x.peer_id;row.dataset.title=x.title||'';
+       const pick=document.createElement('label');pick.className='bulk-picker';
+       pick.style.cssText='display:flex;align-items:center;gap:5px;min-width:65px';
+       pick.innerHTML='<input type="checkbox" class="bulk-select"> انتخاب';
+       row.appendChild(pick);
+       row.insertAdjacentHTML('beforeend','<div><input aria-label="عنوان منبع" class="title" value="'+esc(x.title||'')+'" style="width:100%"><div class="muted">'+esc(x.source_key)+'</div></div>'+
        '<div class="scorebox"><button type="button" class="minus">−10</button><input class="score" type="number" min="0" value="'+esc(x.score||0)+'"><button type="button" class="plus">+10</button></div>'+
        '<label><input class="enabled" type="checkbox" '+(x.enabled?'checked':'')+'> فعال</label>'+
        '<input class="terms" value="'+esc(x.matched_terms||'')+'" placeholder="کلیدواژه‌ها">'+
        '<div class="muted">آخرین مشاهده: '+esc(x.last_seen_at||'-')+'</div>'+
-       '<div><button type="button" class="primary save">ذخیره</button> <button type="button" class="danger del">حذف</button></div>';
-       row.querySelector('.source-select').addEventListener('change',updateSelection);
+       '<div><button type="button" class="primary save">ذخیره</button> <button type="button" class="danger del">حذف</button></div>');
+       row.querySelector('.bulk-select').addEventListener('change',updateBulkSelection);
        row.querySelector('.minus').addEventListener('click',()=>bump(row,-10));
        row.querySelector('.plus').addEventListener('click',()=>bump(row,10));
        row.querySelector('.save').addEventListener('click',()=>saveSource(row));
@@ -726,7 +831,7 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
        $('sourceList').appendChild(row);
      }
      if(!a.length)$('sourceList').innerHTML='<div class="empty-state">هنوز منبعی ثبت نشده است. از بخش افزودن منبع شروع کنید.</div>';
-     updateSelection();
+     applySourceFilter();
      setMsg($('sourceMsg'),a.length?('نمایش '+a.length+' منبع ثبت‌شده'):'هیچ منبعی در Registry ثبت نشده است.',a.length>0);
    }catch(e){$('sourceCount').textContent='!';setMsg($('sourceMsg'),'خطا در دریافت منابع: '+e.message,false);}
  }
@@ -737,6 +842,40 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      setMsg($('sourceMsg'),'تغییرات ذخیره شد.',true); await loadSources();
    }catch(e){setMsg($('sourceMsg'),'ذخیره ناموفق: '+e.message,false);}
  }
+ function visibleSources(){
+   return Array.from($('sourceList').querySelectorAll('.source')).filter(row=>row.style.display!=='none');
+ }
+ function updateBulkSelection(){
+   const rows=visibleSources(),selected=Array.from($('sourceList').querySelectorAll('.bulk-select:checked'));
+   $('selectedSourceCount').textContent=selected.length+' مورد انتخاب شده';
+   $('bulkDeleteBtn').disabled=selected.length===0;
+   $('selectVisibleSources').checked=rows.length>0&&rows.every(row=>row.querySelector('.bulk-select').checked);
+   $('selectVisibleSources').indeterminate=rows.some(row=>row.querySelector('.bulk-select').checked)&&!$('selectVisibleSources').checked;
+ }
+ function applySourceFilter(){
+   const q=$('sourceFilter').value.trim().toLocaleLowerCase();
+   $('sourceList').querySelectorAll('.source').forEach(row=>{
+     const hay=(row.dataset.title+' '+row.dataset.pt+' '+row.dataset.pid).toLocaleLowerCase();
+     row.style.display=!q||hay.includes(q)?'':'none';
+   });
+   updateBulkSelection();
+ }
+ async function bulkDeleteSelected(){
+   const selected=Array.from($('sourceList').querySelectorAll('.source')).filter(row=>row.querySelector('.bulk-select').checked);
+   if(!selected.length)return;
+   if(selected.length>100){setMsg($('sourceMsg'),'در هر عملیات حداکثر 100 منبع قابل حذف است.',false);return;}
+   const details=selected.slice(0,10).map(row=>row.dataset.title+' (Peer '+row.dataset.pid+')').join('\\n');
+   if(!confirm('حذف '+selected.length+' منبع انتخاب‌شده از فهرست Sync؟\\nپیام‌های تاریخی حذف نمی‌شوند.\\n\\n'+details+(selected.length>10?'\\n...':'')))return;
+   const confirmed=prompt('برای تأیید نهایی، عدد '+selected.length+' را وارد کنید:');
+   if(confirmed!==String(selected.length)){setMsg($('sourceMsg'),'حذف لغو شد.',null);return;}
+   const button=$('bulkDeleteBtn');button.disabled=true;
+   try{
+     const payload={items:selected.map(row=>({peer_type:Number(row.dataset.pt),peer_id:Number(row.dataset.pid)}))};
+     const result=await api('/api/sources/bulk-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+     await loadSources();
+     setMsg($('sourceMsg'),result.deleted+' منبع حذف شد. پیام‌های تاریخی حفظ شدند.',true);
+   }catch(e){setMsg($('sourceMsg'),'حذف گروهی ناموفق: '+e.message,false);updateBulkSelection();}
+ }
  async function deleteSource(row){
    if(!confirm('این منبع از فهرست Sync حذف شود؟ پیام‌های تاریخی حذف نمی‌شوند.')) return;
    try{
@@ -745,33 +884,41 @@ button{cursor:pointer}.primary{background:#0f4c5c;color:#fff;border-color:#0f4c5
      await loadSources();
    }catch(e){setMsg($('sourceMsg'),'حذف ناموفق: '+e.message,false);}
  }
- function updateSelection(){
-   const all=Array.from(document.querySelectorAll('.source-select'));
-   const count=all.filter(el=>el.checked).length;
-   $('selectedCount').textContent=count+' انتخاب';
-   $('deleteSelectedSources').disabled=count===0;
-   $('selectAllSources').disabled=all.length===0;
-   $('selectAllSources').checked=all.length>0&&count===all.length;
-   $('selectAllSources').indeterminate=count>0&&count<all.length;
+ async function loadUsernames(){
+  try{
+    const d=await api('/api/sources/usernames');
+    $('usernameRows').innerHTML='';
+    for(const x of d.sources){
+      const box=document.createElement('div');box.className='candidate';
+      box.innerHTML='<strong>@'+esc(x.username)+'</strong> '+esc(x.label||'')+
+        '<div class="muted">وضعیت: '+esc(x.status)+(x.error_code?' • '+esc(x.error_code):'')+'</div>';
+      if(x.status==='pending'){
+        const b=document.createElement('button');b.type='button';b.textContent='تلاش برای تأیید';
+        b.onclick=async()=>{b.disabled=true;try{await api('/api/sources/usernames/'+encodeURIComponent(x.username)+'/resolve',{method:'POST'});setMsg($('usernameMsg'),'شناسه تأیید و به منابع ثبت‌شده اضافه شد.',true);await loadSources();}catch(e){setMsg($('usernameMsg'),e.message,false)}finally{await loadUsernames()}};
+        box.appendChild(b);
+      }
+      const del=document.createElement('button');del.type='button';del.textContent='حذف از صف شناسه‌ها';
+      del.onclick=async()=>{if(!confirm('این شناسه از صف پیگیری حذف شود؟'))return;try{await api('/api/sources/usernames/'+encodeURIComponent(x.username),{method:'DELETE'});await loadUsernames();}catch(e){setMsg($('usernameMsg'),e.message,false)}};
+      box.appendChild(del);$('usernameRows').appendChild(box);
+    }
+  }catch(e){setMsg($('usernameMsg'),e.message,false)}
  }
- $('selectAllSources').addEventListener('change',()=>{
-   document.querySelectorAll('.source-select').forEach(el=>el.checked=$('selectAllSources').checked);updateSelection();
+ $('usernameForm').addEventListener('submit',async e=>{
+   e.preventDefault();
+   try{
+     const body={username:$('usernameValue').value.trim(),label:$('usernameLabel').value.trim()};
+     await api('/api/sources/usernames',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+     setMsg($('usernameMsg'),'ثبت شد؛ در انتظار تأیید بله است.',true);
+     e.target.reset();await loadUsernames();
+   }catch(err){setMsg($('usernameMsg'),err.message,false)}
  });
- $('deleteSelectedSources').addEventListener('click',async()=>{
-   const rows=Array.from(document.querySelectorAll('.source')).filter(row=>row.querySelector('.source-select').checked);
-   if(!rows.length||!confirm('حذف '+rows.length+' منبع از فهرست Sync؟ پیام‌های تاریخی محفوظ می‌مانند.'))return;
-   const button=$('deleteSelectedSources');button.disabled=true;
-   let removed=0,failed=0;
-   for(const row of rows){
-     try{await api('/api/sources/item/'+encodeURIComponent(row.dataset.pt)+'/'+encodeURIComponent(row.dataset.pid),{method:'DELETE'});removed++;}
-     catch(e){failed++;}
-   }
-   await loadSources();
-   setMsg($('sourceMsg'),'حذف شد: '+removed+(failed?'؛ ناموفق: '+failed+'؛ منابع باقی‌مانده را دوباره انتخاب کنید.':''),failed===0);
- });
+ loadUsernames();
  $('discoverBtn').addEventListener('click',discover);
  $('discoverQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();discover();}});
  $('reloadBtn').addEventListener('click',loadSources);
+ $('sourceFilter').addEventListener('input',applySourceFilter);
+ $('selectVisibleSources').addEventListener('change',e=>{visibleSources().forEach(row=>row.querySelector('.bulk-select').checked=e.target.checked);updateBulkSelection();});
+ $('bulkDeleteBtn').addEventListener('click',bulkDeleteSelected);
  $('candidateQ').addEventListener('input',()=>{clearTimeout(window.__candTimer);window.__candTimer=setTimeout(loadCandidates,250);});
  $('manualForm').addEventListener('submit',async e=>{
    e.preventDefault();

@@ -92,3 +92,28 @@ def delete_source(source_key):
         con.execute("DELETE FROM sync_state WHERE source_key=?", (source_key,))
         con.execute("DELETE FROM backfill_state WHERE source_key=?", (source_key,))
     return True
+
+def delete_sources_bulk(items):
+    """Atomically remove explicitly selected registry sources, not messages.
+
+    Duplicate or missing keys abort the entire transaction. A selection may
+    contain at most 100 sources. Sync/backfill cursors follow existing single
+    delete semantics; historical messages remain untouched.
+    """
+    init_db()
+    if not isinstance(items, list) or not 1 <= len(items) <= 100:
+        raise ValueError("select 1 to 100 sources")
+    keys = [_source_key(x["peer_type"], x["peer_id"])[0] for x in items]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate source selection")
+    with connect() as con:
+        for key in keys:
+            if not con.execute(
+                "SELECT 1 FROM source_registry WHERE source_key=?", (key,)
+            ).fetchone():
+                raise ValueError("source not found: " + key)
+        for key in keys:
+            con.execute("DELETE FROM source_registry WHERE source_key=?", (key,))
+            con.execute("DELETE FROM sync_state WHERE source_key=?", (key,))
+            con.execute("DELETE FROM backfill_state WHERE source_key=?", (key,))
+    return {"deleted": len(keys), "source_keys": keys}

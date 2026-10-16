@@ -188,18 +188,23 @@ def check_sources(base, password, changed_password, out, chromium):
         page.goto(base + "/sources/manage")
         page.wait_for_load_state("networkidle")
         expect(page.locator(".source")).to_have_count(2)
-        page.get_by_label("انتخاب همه منابع", exact=True).check()
-        expect(page.locator("#deleteSelectedSources")).to_be_enabled()
+        page.get_by_label("انتخاب همه موارد نمایش‌داده‌شده", exact=True).check()
+        expect(page.locator("#bulkDeleteBtn")).to_be_enabled()
         dismiss_dialog = lambda dialog: dialog.dismiss()
         page.on("dialog", dismiss_dialog)
-        page.locator("#deleteSelectedSources").click()
+        page.locator("#bulkDeleteBtn").click()
         expect(page.locator(".source")).to_have_count(2)
         # Replace the dismissal listener with acceptance only after cancellation was checked.
         page.remove_listener("dialog", dismiss_dialog)
-        page.on("dialog", lambda dialog: dialog.accept())
-        page.locator("#deleteSelectedSources").click()
+        page.on(
+            "dialog",
+            lambda dialog: (
+                dialog.accept("2") if dialog.type == "prompt" else dialog.accept()
+            ),
+        )
+        page.locator("#bulkDeleteBtn").click()
         expect(page.locator(".source")).to_have_count(0)
-        expect(page.locator("#sourceMsg")).to_contain_text("حذف شد: 2")
+        expect(page.locator("#sourceMsg")).to_contain_text("2 منبع حذف شد.")
         assert len(page.request.get(base + "/api/messages").json()) == 4
         b.close()
     print(

@@ -5,6 +5,7 @@ on:
     branches:
       - feature/staff-v05
       - feature/login-auth-ui-052-20261015
+      - fix/bale-discovery-hardening-20261013
   pull_request:
     branches:
       - feature/classifier-v03
@@ -27,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt httpx==0.28.1
       - name: Compile
         run: python -m compileall -q .
       - name: Unit tests
