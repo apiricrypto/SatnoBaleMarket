@@ -17,7 +17,7 @@ PREFIX = rf"(?:(?:\+98|0098){SEP}|0{SEP})"
 PHONE = re.compile(
     rf"(?<![A-Za-z0-9_/@-])(?:{PREFIX}?9(?:{SEP}[0-9]){{9}}|{PREFIX}[1-8](?:{SEP}[0-9]){{9}})(?![A-Za-z0-9_])"
 )
-CONTACT_LABEL = re.compile(r"تماس|تلفن|موبایل|همراه|دفتر|فکس|phone|tel\b|call", re.I)
+CONTACT_LABEL = re.compile(r"تماس|تلفن|موبایل|همراه|دفتر|فکس|phone|tel\b|call|📞|☎|📠", re.I)
 
 
 def _iran_phone(value):

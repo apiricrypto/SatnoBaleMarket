@@ -14,10 +14,12 @@
  }
  function businessEditorHtml(r){
   const p=r.business_profile||r.business_suggestion||{};
+  const newName=r.business_profile&&!p.declared_name&&r.business_suggestion?.declared_name;
   function option(v,label,current){return '<option value="'+e(v)+'"'+(v===current?' selected':'')+'>'+label+'</option>';}
   return '<fieldset class="business-editor"><legend>طرف تجاری و مسیر CRM</legend>'+
    '<p class="muted">نامِ درج‌شده در آگهی، نام حقوقی تأییدشده نیست. منتشرکننده ممکن است نماینده یا ادمین گروه باشد.</p>'+
    (r.business_profile_error?'<p class="error" role="alert">'+e(r.business_profile_error)+'</p>':'')+
+   (newName?'<button type="button" data-apply-name="'+e(newName)+'">استفاده از نام پیشنهادی: '+e(newName)+'</button>':'')+
    '<div class="grid"><label>نام اعلام‌شدهٔ طرف تجاری<input class="party-name" maxlength="200" value="'+e(p.declared_name)+'" autocomplete="off"></label>'+
    '<label>نوع طرف تجاری<select class="party-type" aria-label="نوع طرف تجاری">'+option('unknown','مشخص نشده',p.entity_type||'unknown')+option('company','شرکت / کسب‌وکار',p.entity_type)+option('person','شخص حقیقی',p.entity_type)+'</select></label>'+
    '<label>نقش تجاری<select class="party-roles" aria-label="نقش تجاری">'+option('','مشخص نشده',(p.roles||[]).join(','))+option('supplier','تأمین‌کنندهٔ بالقوه',(p.roles||[]).join(','))+option('buyer','مشتری بالقوه',(p.roles||[]).join(','))+option('supplier,buyer','هر دو نقش',(p.roles||[]).join(','))+'</select></label>'+
@@ -57,6 +59,13 @@
    card.querySelector('.party-evidence').value='';
    card.querySelector('.party-audit').textContent='اطلاعات اصلی تغییر کرده؛ تعلق تماس نیازمند بررسی مجدد است.';
    card.querySelector('.ad-contacts .contact-note')?.replaceChildren(document.createTextNode('اطلاعات اصلی تغییر کرده؛ تعلق تماس نیازمند بررسی مجدد است.'));
+  });
+  const suggestion=card.querySelector('[data-apply-name]');
+  if(suggestion)suggestion.addEventListener('click',()=>{
+   card.querySelector('.party-name').value=suggestion.dataset.applyName;
+   card.querySelector('.party-type').value='company';
+   card.querySelector('.party-name').dispatchEvent(new Event('input',{bubbles:true}));
+   suggestion.disabled=true;update();
   });
   update();
  }

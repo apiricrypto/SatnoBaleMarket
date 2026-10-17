@@ -191,6 +191,43 @@ def check_layout(base, password, changed_password, out, chromium):
     )
 
 
+def check_signature_review(base, password, out, chromium):
+    with sync_playwright() as p:
+        b = p.chromium.launch(executable_path=chromium, headless=True, args=["--no-sandbox"])
+        page = b.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+        assert page.request.post(base + "/api/auth/login", data={"username": "demo-admin", "password": password}).ok
+        text = ('JINKO SOLAR | 620W Bifacial\nموجودی پنل خورشیدی\n'
+                'نوآوران تجارت خورشید نمونه\n📍 تهران، خیابان نمونه\n📞 02123456789\n📱 09123456789')
+        response = page.request.post(base + "/api/messages", data={"text": text, "external_id": "signature-demo", "chat_name": "منبع نمایشی امضای آگهی"})
+        assert response.ok
+        mid = response.json()["id"]
+        profile = {"entity_type": "unknown", "declared_name": "", "roles": [], "contact_person": "", "contact_verification": "unverified", "verification_note": ""}
+        assert page.request.patch(base + "/api/review/messages/" + str(mid), data={"review_status": "reviewed", "business_profile": profile}).ok
+        for width in (375, 1440):
+            page.set_viewport_size({"width": width, "height": 1000})
+            page.goto(base + "/review?message_id=" + str(mid))
+            card = page.locator('.result-card[data-id="' + str(mid) + '"]')
+            name = card.get_by_label("نام اعلام‌شدهٔ طرف تجاری", exact=True)
+            if width == 375:
+                expect(name).to_have_value("")
+                card.get_by_role("button", name="استفاده از نام پیشنهادی: نوآوران تجارت خورشید نمونه", exact=True).click()
+                expect(name).to_have_value("نوآوران تجارت خورشید نمونه")
+                card.get_by_label("نقش تجاری", exact=True).select_option("supplier")
+                card.locator('[data-queue-business]').click()
+                expect(card.locator('.result')).to_contain_text("در صف CRM #")
+            expect(name).to_have_value("نوآوران تجارت خورشید نمونه")
+            expect(card.locator('a[href="tel:+982123456789"]')).to_be_visible()
+            expect(card.locator('a[href="tel:+989123456789"]')).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+            page.screenshot(path=str(out / f"signature-review-{width}.png"), full_page=True)
+        assert not errors, errors
+        b.close()
+    print("PASS: signature name, landline/mobile, explicit adoption for empty saved draft, durable queue and mobile/desktop layout")
+
+
 def check_auth(base, password, changed_password, out, chromium):
     with sync_playwright() as p:
         b = p.chromium.launch(
@@ -377,6 +414,7 @@ def main():
                     raise RuntimeError("Test server readiness timed out")
                 check_sources(base, password, changed_password, out, args.chromium)
                 check_layout(base, password, changed_password, out, args.chromium)
+                check_signature_review(base, password, out, args.chromium)
                 check_auth(base, password, changed_password, out, args.chromium)
             finally:
                 process.terminate()

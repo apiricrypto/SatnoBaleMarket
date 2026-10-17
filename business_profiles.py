@@ -2,7 +2,7 @@
 import json
 import re
 
-from ad_contacts import extract_reviewed_contacts
+from ad_contacts import extract_ad_contacts, extract_reviewed_contacts
 
 PROFILE_FIELDS = {
     'entity_type', 'declared_name', 'roles', 'contact_person',
@@ -13,9 +13,53 @@ ROLE_ORDER = ('supplier', 'buyer')
 BUSINESS_SCHEMA = 'satno.market-party.v1'
 
 
+def _signature_name(line):
+    """Restrict implicit names to short Persian business signatures, not ad prose."""
+    value = re.sub(r'^[^A-Za-zآ-ی]+', '', line)
+    value = re.split(r'[|؛;—–]', value, maxsplit=1)[0].strip(' .ـ')
+    value = re.sub(r'^شرکت\s+', '', value)
+    if not re.search(r'[آ-ی]', value) or not 2 <= len(value.split()) <= 7:
+        return ''
+    # Footer position alone is insufficient: require a business-name cue as well.
+    if not re.search(r'(?<!\w)(?:تجارت|بازرگانی|توسعه|صنایع|صنعت|گروه|پروفیل|سولار|انرژی|الکتریک|الکترونیک|مهندسی)(?!\w)', value):
+        return ''
+    if not re.fullmatch(r'[A-Za-zآ-ی\u200c -]+', value):
+        return ''
+    if re.match(r'^(?:استراکچر|تولید|تأمین|تامین|فروش|استعلام|قیمت|موجودی|کیفیت|انتخاب|انواع|مناسب|سازه مطمئن|برای|لیست|توان|فناوری|تماس|با|ارسال|گارانتی|شرایط|ثبت|جهت|پشتیبانی|پنل|اینورتر|باتری|کابل|تجهیزات)\b', value):
+        return ''
+    if re.search(r'(?<!\w)(?:خیابان|بلوار|بزرگراه|کوچه|میدان|جاده|پلاک|واحد|آدرس|نشانی|شهرک|وات|کیلووات)(?!\w)', value):
+        return ''
+    return value
+
+
+def _contact_signatures(text):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    contact_lines = set()
+    for i, line in enumerate(lines):
+        if any(c.get('href') and c['kind'] in {'phone', 'email', 'whatsapp', 'bale'}
+               for c in extract_ad_contacts(line)):
+            contact_lines.add(i)
+    candidates = {}
+    for i, line in enumerate(lines):
+        if i in contact_lines or line.startswith(('📍', '@', '📲')):
+            continue
+        name = _signature_name(line)
+        if not name:
+            continue
+        before_address = (i + 1 < len(lines) and
+            re.match(r'^(?:📍|آدرس|نشانی|address\b)', lines[i + 1], re.I) and
+            any(j in contact_lines for j in range(i + 1, min(i + 5, len(lines)))))
+        # An end signature needs preceding contact evidence, not just a slogan.
+        end_signature = (i >= len(lines) - 2 and
+            any(j in contact_lines for j in range(max(0, i - 4), i)))
+        if before_address or end_signature:
+            candidates.setdefault(name, line)
+    return candidates
+
+
 def suggest_business_profile(text, category='other'):
     text = str(text or '')
-    # Require an explicit company marker. Do not transliterate or infer legal identity.
+    # An explicit company marker or a contact-block signature is an advertised claim.
     match = re.search(r'(?<!\w)شرکت[ \t]+([^\n؛;،,:：«»"<>|☀️]{2,100})', text)
     name, evidence = '', ''
     if match:
@@ -23,6 +67,11 @@ def suggest_business_profile(text, category='other'):
         if (len(candidate.split()) <= 5 and not re.match(r'^(?:در|کنید|کردن|ما|شما|های|ها)\b', candidate)
                 and not re.search(r'https?://|www\.|@|[0-9۰-۹٠-٩]{5}', candidate)):
             name, evidence = candidate, match.group().strip()
+    signatures = _contact_signatures(text)
+    if not name and len(signatures) == 1:
+        name, evidence = next(iter(signatures.items()))
+    elif not name and len(signatures) > 1:
+        name, evidence = '', ''  # Multiple advertised parties need human selection.
     roles = []
     if category in {'supplier_seller', 'stock_availability'}:
         roles = ['supplier']

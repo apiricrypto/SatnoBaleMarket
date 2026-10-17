@@ -14,7 +14,7 @@ An ad is evidence of an advertised identity and commercial intent; it is neither
 
 ## Operator workflow implemented in Bale Market
 
-1. Market shows conservative name/role suggestions. Names require the explicit Persian company marker `شرکت`; unsupported or ambiguous names are left for manual entry. Roles suggested from existing message category are editable, never authoritative.
+1. Market shows conservative name/role suggestions. Names may use the explicit Persian company marker `شرکت`, or a short Persian business signature immediately before an address/contact block or near the end after contact details. Implicit signatures require business-name cues; product headings, slogans and addresses are excluded. Explicit company names take precedence, and ambiguous signatures remain for manual entry. Roles suggested from existing message category are editable, never authoritative.
 2. Review shows labelled fields: declared name (200 chars), company/person/unknown, supplier/buyer/both, optional company representative name, primary contact, unverified/confirmed relationship and an evidence note (1000 chars).
 3. Selection for queue requires a nonempty declared name, a known party type and at least one role. Draft/rejected reviews may remain incomplete. Names of people/representatives are entered by the reviewer, never copied from the publisher.
 4. Contact confirmation requires the named party, a usable primary contact (not a group invite), and an evidence note. The server records `contact_verified_by`, `contact_verified_at`, and the exact `verified_contact`. The client cannot supply audit metadata. Confirmation applies to the primary contact only; it is not legal-company verification or validation of all advertised contacts. A primary contact edit without renewed explicit confirmation invalidates its old confirmation. Notes-only edits preserve the original verifier.
@@ -81,3 +81,14 @@ Current user-confirmed production baseline: `fd36c9e`. Before a separately autho
 - Screenshots contain only synthetic data under `docs/contact-evidence/business-review/`.
 - JavaScript syntax and `git diff --check` passed. Existing FastAPI `on_event` deprecation remains; no unrelated framework migration was included.
 - No Windows Server deployment, production migration or real CRM entity creation performed in this environment. The receiver contract is proposed for the next CRM session, not claimed implemented by that separate project.
+
+
+## Signature extraction correction — after `6cb8cd6`
+
+Contact-footer business names no longer need the word `شرکت`. The candidate carries the original signature line as `name_evidence`; it remains an advertised claim and does not confirm ownership or legal identity. Unsupported forms still require human entry. Do not treat this rule-based parser as a universal company recognizer.
+
+Landline contacts accept explicit telephone symbols (📞 / ☎ / 📠) as contact context in addition to text labels. Bare unlabelled numeric product IDs remain excluded. A hyphenated/unlabelled handle is not repaired or guessed into a Bale profile link.
+
+Existing saved party names are preserved. An empty saved draft with a newly recognized suggestion offers **استفاده از نام پیشنهادی**; adoption is explicit and is persisted only on review/queue save. No saved verification is automatically inherited. Existing unsent outbox payloads still require explicit re-review/requeue to update.
+
+This correction adds no dependency, database migration, Sync/source change or delivery-gate change. Unit regression total is **180 passed**, including nine signature tests and all previous business/contact/auth/Sync tests. The operator's two excerpts were checked locally without saving their contact data in the repository; committed fixtures and screenshots use synthetic details only. Browser acceptance includes signature suggestion adoption for an empty saved draft, both landline and mobile, queue persistence, mobile/desktop layout and the existing eight-page suite. Production remains at the user-confirmed `6cb8cd6` until a separately authorized code upgrade.
