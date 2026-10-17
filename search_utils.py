@@ -27,6 +27,7 @@ _SEARCH_WEIGHTS = {
     "price_values": 6,
     "currency_values": 5,
     "sender_username": 5,
+    "business_name": 8,
     "sender_name": 4,
     "chat_name": 3,
     "text": 2,
@@ -83,7 +84,7 @@ def message_search_score(row, query: str) -> int:
         for k in (
             "models","brands","product_types","locations","power_values",
             "energy_values","price_values","currency_values","chat_name",
-            "sender_name","sender_username"
+            "sender_name","sender_username","business_name"
         )
     ).strip()
     all_haystack = (text_haystack + " " + structured).strip()

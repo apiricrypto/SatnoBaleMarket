@@ -170,3 +170,27 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
             (user_id,),
         ).fetchone()
     return dict(row)
+
+
+def change_own_password(user_id, current_password, new_password):
+    """Verify the user's current password and revoke every previous session."""
+    if not current_password:
+        raise ValueError("current password is required")
+    if len(new_password) < 12:
+        raise ValueError("new password must be at least 12 characters")
+    if current_password == new_password:
+        raise ValueError("new password must differ from current password")
+    init_db()
+    with connect() as con:
+        row = con.execute(
+            "SELECT password_hash,is_active FROM staff_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not row or not row["is_active"] or not verify_password(current_password, row["password_hash"]):
+            raise ValueError("current password is incorrect")
+        con.execute(
+            "UPDATE staff_users SET password_hash=? WHERE id=?",
+            (hash_password(new_password), user_id),
+        )
+        _revoke_user_sessions(con, user_id)
+    return True

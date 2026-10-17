@@ -122,6 +122,18 @@ def init_db():
           last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
         con.execute("CREATE INDEX IF NOT EXISTS idx_source_registry_enabled ON source_registry(enabled)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS source_username_queue (
+          username TEXT PRIMARY KEY,
+          label TEXT,
+          score INTEGER NOT NULL DEFAULT 50,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_code TEXT,
+          resolved_peer_type TEXT,
+          resolved_peer_id TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+
         con.execute('''
         CREATE TABLE IF NOT EXISTS source_discovery_cache (
           peer_type TEXT NOT NULL,
@@ -175,6 +187,7 @@ def init_db():
           last_error TEXT,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
+        _ensure_column(con, "sender_directory", "lookup_version", "INTEGER NOT NULL DEFAULT 0")
         con.execute("CREATE INDEX IF NOT EXISTS idx_sender_directory_username ON sender_directory(sender_username)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS lead_reviews (
@@ -202,6 +215,7 @@ def init_db():
         _ensure_column(con, "lead_reviews", "estimated_amount", "INTEGER")
         _ensure_column(con, "lead_reviews", "estimated_currency", "TEXT")
         _ensure_column(con, "lead_reviews", "priority", "TEXT")
+        _ensure_column(con, "lead_reviews", "business_profile", "TEXT")
         con.execute("CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(review_status)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS crm_lead_outbox (

@@ -55,16 +55,12 @@ async def main():
             with connect() as con:
                 con.execute("""INSERT INTO source_registry(source_key,title,peer_type,peer_id,score,matched_terms,enabled,discovered_at,last_seen_at)
                     VALUES(?,?,?,?,?,?,1,?,?)
-                    ON CONFLICT(source_key) DO UPDATE SET title=excluded.title,peer_type=excluded.peer_type,peer_id=excluded.peer_id,
-                    score=excluded.score,matched_terms=excluded.matched_terms,last_seen_at=excluded.last_seen_at""",
+                    ON CONFLICT(source_key) DO UPDATE SET last_seen_at=excluded.last_seen_at""",
                     (key,title,str(getattr(peer,"type","unknown")),str(getattr(peer,"id","unknown")),score,json.dumps(matched,ensure_ascii=False),now,now))
             print(f"SOURCE score={score:02d} | {title}")
-    with connect() as con:
-        # Disable previously auto-discovered sources that no longer pass the stricter rules.
-        rows=con.execute("SELECT source_key FROM source_registry").fetchall()
-        for row in rows:
-            if row[0] not in seen_keys:
-                con.execute("UPDATE source_registry SET enabled=0 WHERE source_key=?",(row[0],))
+    # IMPORTANT: An incomplete Bale dialog listing is not authoritative.
+    # Never disable registered/manual sources just because Bale failed to
+    # return them in this discovery run. Disabling is an explicit staff action.
     print("="*60)
     print("DISCOVERY COMPLETE")
     print("Dialogs scanned :",scanned)

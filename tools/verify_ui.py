@@ -1,0 +1,429 @@
+"""Run browser acceptance against an ephemeral database and loopback server only.
+Requires playwright and Chromium. Never connects to production or starts Sync.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+import tempfile
+import time
+from urllib.request import urlopen
+from playwright.sync_api import sync_playwright, expect
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+
+def check_layout(base, password, changed_password, out, chromium):
+    errors = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox"]
+        )
+        seed = browser.new_context()
+        assert seed.request.post(
+            base + "/api/auth/login",
+            data={"username": "demo-admin", "password": password},
+        ).ok
+        assert seed.request.post(
+            base + "/api/sources",
+            data={
+                "peer_type": 2,
+                "peer_id": 990003,
+                "title": "منبع نمایشی غیرفعال",
+                "enabled": False,
+                "score": 50,
+            },
+        ).ok
+        seed.close()
+        for width in (375, 768, 1440):
+            context = browser.new_context(viewport={"width": width, "height": 1000})
+            page = context.new_page()
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.on(
+                "console",
+                lambda message: (
+                    errors.append(message.text) if message.type == "error" else None
+                ),
+            )
+            page.on("requestfailed", lambda request: errors.append(request.url))
+            page.goto(base + "/login")
+            page.wait_for_load_state("networkidle")
+            for logo in page.locator('img[src="/assets/satno-logo.jpg"]').all():
+                assert logo.evaluate(
+                    "img => img.complete && img.naturalWidth === 1280 && img.naturalHeight === 1218"
+                )
+                size = logo.bounding_box()
+                assert abs(size["width"] / size["height"] - 1280 / 1218) < 0.02
+            assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+            page.screenshot(path=str(out / f"login-{width}.png"), full_page=True)
+            page.get_by_label("نام کاربری", exact=True).fill("demo-admin")
+            page.get_by_label("رمز عبور", exact=True).fill(password)
+            page.get_by_role("button", name="ورود", exact=True).click()
+            page.wait_for_url(base + "/")
+            for path, name in [
+                ("/", "dashboard"),
+                ("/sources/manage", "sources"),
+                ("/profile/password", "password"),
+                ("/review", "review"),
+                ("/status", "status"),
+                ("/admin/users", "users"),
+                ("/crm/outbox", "outbox"),
+            ]:
+                page.goto(base + path)
+                page.wait_for_load_state("networkidle")
+                if path == "/":
+                    card = page.locator(".result-card").filter(
+                        has=page.locator('a[href="tel:+989123456789"]')
+                    )
+                    expect(card).to_have_count(1)
+                    expect(card.locator(".meta")).to_contain_text(
+                        "پروفایل منتشرکننده پیام"
+                    )
+                    expect(card.locator(".ad-contacts")).to_contain_text(
+                        "اطلاعات تماس داخل آگهی"
+                    )
+                    expect(
+                        card.locator(
+                            '.ad-contacts a[href="https://wa.me/989123456789"]'
+                        )
+                    ).to_be_visible()
+                    expect(
+                        card.locator(
+                            '.ad-contacts a[href="https://ble.ir/ad_demo_contact"]'
+                        )
+                    ).to_be_visible()
+                    card.locator("summary").click()
+                    expect(
+                        card.locator('a[href="mailto:sales@example.com"]')
+                    ).to_be_visible()
+                    expect(
+                        card.locator('a[href="https://www.example.com"]')
+                    ).to_be_visible()
+                    expect(
+                        card.locator('a[href="https://ble.ir/unlabelled_demo"]')
+                    ).to_have_count(0)
+                    card.locator("summary").click()
+                    card.screenshot(path=str(out / f"ad-contact-card-{width}.png"))
+                    expect(
+                        page.locator('a[href="https://ble.ir/satno_demo_member"]')
+                    ).to_be_visible()
+                if path == "/review":
+                    messages = page.request.get(base + "/api/messages?limit=200").json()
+                    message = next(m for m in messages if any(
+                        c["kind"] == "phone" and c["value"] == "09123456789"
+                        for c in m.get("ad_contacts", [])
+                    ))
+                    page.goto(base + "/review?message_id=" + str(message["id"]))
+                    page.wait_for_load_state("networkidle")
+                    card = page.locator('.result-card[data-id="' + str(message["id"]) + '"]')
+                    expect(card.locator('.meta')).to_contain_text("پروفایل منتشرکننده پیام")
+                    expect(card.locator('a[href="https://ble.ir/ad_demo_contact"]')).to_be_visible()
+                    contact = card.get_by_label("تماس اصلی CRM (قابل اصلاح)")
+                    expect(contact).to_have_value("09123456789")
+                    expect(card.get_by_label("نام اعلام‌شدهٔ طرف تجاری", exact=True)).to_have_value("ExampleSolar")
+                    expect(card.get_by_label("نوع طرف تجاری", exact=True)).to_have_value("company")
+                    expect(card.get_by_label("نقش تجاری", exact=True)).to_have_value("supplier")
+                    if width == 375:
+                        card.get_by_label("نقش تجاری", exact=True).select_option("buyer")
+                        expect(card.locator("[data-queue-business]")).to_have_text("ثبت سرنخ خرید در صف CRM")
+                        card.get_by_label("نقش تجاری", exact=True).select_option("supplier,buyer")
+                        expect(card.locator("[data-queue-business]")).to_have_text("ثبت طرف تجاری با هر دو نقش در صف CRM")
+                        card.get_by_label("نقش تجاری", exact=True).select_option("supplier")
+                    if width == 375:
+                        card.get_by_label("تعلق تماس اصلی به طرف تجاری", exact=True).select_option("confirmed")
+                        card.locator("[data-queue-business]").click()
+                        expect(card.locator('.result')).to_contain_text("توضیح بررسی")
+                        assert page.request.get(base + "/api/crm/outbox").json() == []
+                        unsafe = '"><svg data-injected-contact onload="window.contactInjected=true">'
+                        contact.fill(unsafe)
+                        card.get_by_role("button", name="ثبت بررسی", exact=True).click()
+                        expect(card.locator('.result')).to_contain_text("ثبت شد")
+                        page.reload()
+                        expect(card.locator('.contact')).to_have_value(unsafe)
+                        expect(page.locator('[data-injected-contact]')).to_have_count(0)
+                        contact.fill("09123456789")
+                        card.get_by_label("تعلق تماس اصلی به طرف تجاری", exact=True).select_option("confirmed")
+                        card.get_by_label("توضیح بررسی تعلق تماس", exact=True).fill("تأیید صرفاً نمایشی در محیط تست")
+                    card.locator("[data-queue-business]").click()
+                    expect(card.locator('.result')).to_contain_text("در صف CRM #")
+                    expect(card.locator('.party-audit')).to_contain_text("demo-admin")
+                    expect(card.locator('.ad-contacts .contact-note')).to_contain_text("سایر تماس‌ها")
+                if path == "/crm/outbox":
+                    expect(page.locator('a[href="tel:+989123456789"]').first).to_be_visible()
+                    expect(page.locator('a[href="https://ble.ir/ad_demo_contact"]')).to_be_visible()
+                    expect(page.locator('.reviewed-contact')).to_contain_text("09123456789")
+                    snapshot = page.request.get(base + "/api/crm/outbox").json()
+                    assert len(snapshot) == 1, "Requeue must preserve the outbox row"
+                    readiness = page.request.get(base + "/api/crm/readiness").json()
+                    assert not readiness["live_delivery_enabled"]
+                    expect(page.get_by_role("button", name="در انتظار قرارداد CRM", exact=True)).to_be_disabled()
+                    expect(page.locator('.business-snapshot')).to_contain_text("ExampleSolar")
+                    expect(page.locator('.business-snapshot')).to_contain_text("بانک تأمین‌کنندگان")
+                    handoff = page.request.get(base + "/api/crm/outbox/" + str(snapshot[0]["id"]) + "/handoff").json()
+                    assert handoff["raw_payload"]["business_context"]["intended_intake"] == "supplier_intake"
+                    assert page.request.post(base + "/api/crm/outbox/" + str(snapshot[0]["id"]) + "/send").json()["reason"] == "business_contract_pending"
+                assert page.locator('nav a[href="/profile/password"]').count() == 1
+                assert page.locator('nav img[src="/assets/satno-logo.jpg"]').evaluate(
+                    "img => img.complete && img.naturalWidth === 1280"
+                )
+                assert page.evaluate(
+                    "document.documentElement.scrollWidth<=innerWidth"
+                ), f"overflow {name} {width}"
+                page.screenshot(path=str(out / f"{name}-{width}.png"), full_page=True)
+            context.close()
+        browser.close()
+    assert not errors, errors
+    print(
+        json.dumps(
+            {
+                "viewports": [375, 768, 1440],
+                "pages": 8,
+                "page_errors": errors,
+                "overflow": "none",
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def check_signature_review(base, password, out, chromium):
+    with sync_playwright() as p:
+        b = p.chromium.launch(executable_path=chromium, headless=True, args=["--no-sandbox"])
+        page = b.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+        assert page.request.post(base + "/api/auth/login", data={"username": "demo-admin", "password": password}).ok
+        text = ('JINKO SOLAR | 620W Bifacial\nموجودی پنل خورشیدی\n'
+                'نوآوران تجارت خورشید نمونه\n📍 تهران، خیابان نمونه\n📞 02123456789\n📱 09123456789')
+        response = page.request.post(base + "/api/messages", data={"text": text, "external_id": "signature-demo", "chat_name": "منبع نمایشی امضای آگهی"})
+        assert response.ok
+        mid = response.json()["id"]
+        profile = {"entity_type": "unknown", "declared_name": "", "roles": [], "contact_person": "", "contact_verification": "unverified", "verification_note": ""}
+        assert page.request.patch(base + "/api/review/messages/" + str(mid), data={"review_status": "reviewed", "business_profile": profile}).ok
+        for width in (375, 1440):
+            page.set_viewport_size({"width": width, "height": 1000})
+            page.goto(base + "/review?message_id=" + str(mid))
+            card = page.locator('.result-card[data-id="' + str(mid) + '"]')
+            name = card.get_by_label("نام اعلام‌شدهٔ طرف تجاری", exact=True)
+            if width == 375:
+                expect(name).to_have_value("")
+                card.get_by_role("button", name="استفاده از نام پیشنهادی: نوآوران تجارت خورشید نمونه", exact=True).click()
+                expect(name).to_have_value("نوآوران تجارت خورشید نمونه")
+                card.get_by_label("نقش تجاری", exact=True).select_option("supplier")
+                card.locator('[data-queue-business]').click()
+                expect(card.locator('.result')).to_contain_text("در صف CRM #")
+            expect(name).to_have_value("نوآوران تجارت خورشید نمونه")
+            expect(card.locator('a[href="tel:+982123456789"]')).to_be_visible()
+            expect(card.locator('a[href="tel:+989123456789"]')).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+            page.screenshot(path=str(out / f"signature-review-{width}.png"), full_page=True)
+        assert not errors, errors
+        b.close()
+    print("PASS: signature name, landline/mobile, explicit adoption for empty saved draft, durable queue and mobile/desktop layout")
+
+
+def check_auth(base, password, changed_password, out, chromium):
+    with sync_playwright() as p:
+        b = p.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox"]
+        )
+        page = b.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+
+        def login(user, password, success=True):
+            page.goto(base + "/login")
+            page.get_by_label("نام کاربری", exact=True).fill(user)
+            page.get_by_label("رمز عبور", exact=True).fill(password)
+            page.get_by_role("button", name="ورود", exact=True).click()
+            if success:
+                page.wait_for_url(base + "/")
+            else:
+                expect(page.locator("#err")).to_contain_text("نادرست")
+
+        login("demo-sales", "wrong", False)
+        login("demo-sales", password)
+        page.get_by_role("link", name="تغییر رمز", exact=True).click()
+        page.get_by_label("رمز فعلی", exact=True).fill("wrong")
+        page.get_by_label("رمز جدید (حداقل ۱۲ کاراکتر)", exact=True).fill(
+            changed_password
+        )
+        page.get_by_label("تکرار رمز جدید", exact=True).fill("DifferentDemoOnly123!")
+        page.get_by_role("button", name="تغییر رمز عبور", exact=True).click()
+        expect(page.locator("#status")).to_contain_text("یکسان نیست")
+        page.get_by_label("تکرار رمز جدید", exact=True).fill(changed_password)
+        page.get_by_role("button", name="تغییر رمز عبور", exact=True).click()
+        expect(page.locator("#status")).to_contain_text("صحیح نیست")
+        page.get_by_label("رمز فعلی", exact=True).fill(password)
+        page.get_by_role("button", name="تغییر رمز عبور", exact=True).click()
+        page.wait_for_url(base + "/login")
+        login("demo-sales", password, False)
+        login("demo-sales", changed_password)
+        page.get_by_role("button", name="خروج از حساب", exact=True).click()
+        page.wait_for_url(base + "/login")
+        login("demo-admin", password)
+        # Admin reset uses the existing management endpoint, exercised through browser request context.
+        users = page.request.get(base + "/api/admin/users").json()
+        member = next(u for u in users if u["username"] == "demo-sales")
+        assert page.request.patch(
+            base + "/api/admin/users/" + str(member["id"]), data={"password": password}
+        ).ok
+        page.get_by_role("button", name="خروج از حساب", exact=True).click()
+        page.wait_for_url(base + "/login")
+        login("demo-sales", changed_password, False)
+        login("demo-sales", password)
+        assert page.locator('nav a[href="/admin/users"]').count() == 0
+        page.get_by_role("button", name="خروج از حساب", exact=True).click()
+        page.wait_for_url(base + "/login")
+        login("demo-viewer", password)
+        assert page.locator('nav a[href="/review"]').count() == 0
+        assert page.request.get(base + "/admin/users").status == 403
+        assert page.request.get(base + "/review").status == 403
+        assert not errors, errors
+        b.close()
+    print(
+        "PASS: login errors, mismatch, current password, password change, old/new login, logout, admin reset, viewer/sales RBAC; no page errors"
+    )
+
+
+def check_sources(base, password, changed_password, out, chromium):
+    with sync_playwright() as p:
+        b = p.chromium.launch(
+            executable_path=chromium, headless=True, args=["--no-sandbox"]
+        )
+        page = b.new_page()
+        assert page.request.post(
+            base + "/api/auth/login",
+            data={"username": "demo-admin", "password": password},
+        ).ok
+        for peer_id in (990001, 990002):
+            assert page.request.post(
+                base + "/api/sources",
+                data={
+                    "peer_type": 2,
+                    "peer_id": peer_id,
+                    "title": "منبع نمایشی " + str(peer_id),
+                    "enabled": False,
+                    "score": 50,
+                },
+            ).ok
+        page.goto(base + "/sources/manage")
+        page.wait_for_load_state("networkidle")
+        expect(page.locator(".source")).to_have_count(2)
+        page.get_by_label("انتخاب همه موارد نمایش‌داده‌شده", exact=True).check()
+        expect(page.locator("#bulkDeleteBtn")).to_be_enabled()
+        dismiss_dialog = lambda dialog: dialog.dismiss()
+        page.on("dialog", dismiss_dialog)
+        page.locator("#bulkDeleteBtn").click()
+        expect(page.locator(".source")).to_have_count(2)
+        # Replace the dismissal listener with acceptance only after cancellation was checked.
+        page.remove_listener("dialog", dismiss_dialog)
+        page.on(
+            "dialog",
+            lambda dialog: (
+                dialog.accept("2") if dialog.type == "prompt" else dialog.accept()
+            ),
+        )
+        page.locator("#bulkDeleteBtn").click()
+        expect(page.locator(".source")).to_have_count(0)
+        expect(page.locator("#sourceMsg")).to_contain_text("2 منبع حذف شد.")
+        assert len(page.request.get(base + "/api/messages").json()) == 4
+        b.close()
+    print(
+        "PASS: bulk selection, cancellation, confirmed deletion; historical messages preserved"
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--artifacts", default="/tmp/satno-ui-evidence")
+    parser.add_argument("--port", type=int, default=8006)
+    parser.add_argument("--chromium", default="/usr/bin/chromium")
+    args = parser.parse_args()
+    out = Path(args.artifacts).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    password = secrets.token_urlsafe(24)
+    changed_password = secrets.token_urlsafe(24)
+    base = f"http://127.0.0.1:{args.port}"
+    with tempfile.TemporaryDirectory(prefix="satno-ui-") as temporary:
+        os.environ["DATABASE_PATH"] = str(Path(temporary) / "demo.db")
+        os.environ["SATNO_CRM_LEAD_URL"] = ""
+        os.environ["SESSION_COOKIE_SECURE"] = "0"
+        from auth import create_user
+        from main import save_message, MessageIn
+        from sender_contacts import Contact, save_contact
+
+        for role in ("admin", "sales", "viewer"):
+            create_user("demo-" + role, password, role, "کاربر آزمایشی " + role)
+        for i, text in enumerate(
+            [
+                "شرکت ExampleSolar؛ فروش پنل خورشیدی ۵۵۰ وات در تهران",
+                "خریدار اینورتر ۱۰ کیلووات در شیراز",
+                "موجودی پنل JA Solar 580 وات",
+                "استعلام پروژه نیروگاه خورشیدی ۲۰ کیلووات",
+            ]
+        ):
+            save_message(
+                MessageIn(
+                    external_id="demo-" + str(i),
+                    chat_name="منبع نمایشی جداگانه",
+                    sender_name="تست محلی",
+                    sender_id=str(7000 + i),
+                    text=text
+                    + (
+                        "\nتماس: ۰۹۱۲۳۴۵۶۷۸۹\nواتساپ https://wa.me/989123456789\nبله: https://ble.ir/ad_demo_contact\nایمیل: sales@example.com\nوبسایت www.example.com\nشناسه @unlabelled_demo"
+                        if i == 0
+                        else ""
+                    ),
+                )
+            )
+        save_contact(Contact("7000", "فرستنده نمایشی", "satno_demo_member"))
+        with (out / "server.log").open("w") as log:
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "main:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(args.port),
+                ],
+                cwd=ROOT,
+                stdout=log,
+                stderr=log,
+            )
+            try:
+                for _ in range(100):
+                    if process.poll() is not None:
+                        raise RuntimeError("Test server exited; see server.log")
+                    try:
+                        with urlopen(base + "/health", timeout=1) as response:
+                            assert json.load(response)["version"] == "0.5.2"
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                else:
+                    raise RuntimeError("Test server readiness timed out")
+                check_sources(base, password, changed_password, out, args.chromium)
+                check_layout(base, password, changed_password, out, args.chromium)
+                check_signature_review(base, password, out, args.chromium)
+                check_auth(base, password, changed_password, out, args.chromium)
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+
+if __name__ == "__main__":
+    main()
