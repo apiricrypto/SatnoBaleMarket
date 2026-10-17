@@ -1,0 +1,136 @@
+{
+  "source_record_id": "bale:1402dfb510e238200198eb2d4bfc497c356d03002576eb07561aed70adcfb567",
+  "title": "شرکت ExampleSolar؛ موجودی پنل خورشیدی\nتماس: 09123456789\nبله: https://ble.ir/example_supplier\nhttps://wa.me/989123456789\nsales@example.com\nwww.example.com",
+  "captured_at": "2026-10-17T07:00:00Z",
+  "raw_payload": {
+    "provider": "bale",
+    "message": {
+      "external_id": "synthetic-ad-101",
+      "chat_name": "گروه نمونهٔ آزمایشی",
+      "sender_id": "demo-publisher",
+      "sender_name": "منتشرکنندهٔ نمونه",
+      "sender_username": null,
+      "sender_link": null,
+      "sender_contact_role": "publisher",
+      "text": "شرکت ExampleSolar؛ موجودی پنل خورشیدی\nتماس: 09123456789\nبله: https://ble.ir/example_supplier\nhttps://wa.me/989123456789\nsales@example.com\nwww.example.com",
+      "sent_at": "2026-10-17T07:00:00Z"
+    },
+    "extracted": {
+      "category": "stock_availability",
+      "brands": [],
+      "product_types": [],
+      "models": [],
+      "power_values": [],
+      "capacity_values": [],
+      "price_values": [],
+      "currency_values": [],
+      "quantities": [],
+      "phones": [],
+      "ad_contacts": [
+        {
+          "kind": "phone",
+          "value": "09123456789",
+          "href": "tel:+989123456789",
+          "origin": "message_text",
+          "ownership_verified": false
+        },
+        {
+          "kind": "whatsapp",
+          "value": "989123456789",
+          "href": "https://wa.me/989123456789",
+          "origin": "message_text",
+          "ownership_verified": false
+        },
+        {
+          "kind": "bale",
+          "value": "@example_supplier",
+          "href": "https://ble.ir/example_supplier",
+          "origin": "message_text",
+          "ownership_verified": false
+        },
+        {
+          "kind": "email",
+          "value": "sales@example.com",
+          "href": "mailto:sales@example.com",
+          "origin": "message_text",
+          "ownership_verified": false
+        },
+        {
+          "kind": "website",
+          "value": "www.example.com",
+          "href": "https://www.example.com",
+          "origin": "message_text",
+          "ownership_verified": false
+        }
+      ],
+      "locations": []
+    },
+    "review": {
+      "status": "selected",
+      "category": null,
+      "product": null,
+      "brand": null,
+      "model": null,
+      "power": null,
+      "capacity": null,
+      "price": null,
+      "currency": null,
+      "location": null,
+      "contact": "09123456789",
+      "ad_contacts": [
+        {
+          "kind": "phone",
+          "value": "09123456789",
+          "href": "tel:+989123456789",
+          "origin": "reviewer_input",
+          "ownership_verified": false
+        }
+      ],
+      "notes": null,
+      "reviewed_by": "demo-reviewer",
+      "reviewed_at": "2026-10-17T07:30:00+00:00"
+    },
+    "business_context": {
+      "schema": "satno.market-party.v1",
+      "intended_intake": "supplier_intake",
+      "requested_action": "resolve_or_create_after_review",
+      "delivery_state": "crm_contract_pending",
+      "party": {
+        "declared_name": "ExampleSolar",
+        "contact_person": "",
+        "verification_note": "",
+        "entity_type": "company",
+        "roles": [
+          "supplier"
+        ],
+        "contact_verification": "unverified",
+        "contact_verified_at": null,
+        "contact_verified_by": null,
+        "verified_contact": null,
+        "name_origin": "message_text",
+        "name_evidence": "شرکت ExampleSolar"
+      },
+      "source": {
+        "message_id": 101,
+        "external_id": "synthetic-ad-101",
+        "chat_name": "گروه نمونهٔ آزمایشی",
+        "sent_at": "2026-10-17T07:00:00Z",
+        "publisher_role": "publisher"
+      },
+      "review": {
+        "status": "selected",
+        "reviewed_by": "demo-reviewer",
+        "reviewed_at": "2026-10-17T07:30:00+00:00",
+        "verification_scope": "none",
+        "primary_contact": "09123456789",
+        "contact_verified_by": null,
+        "contact_verified_at": null
+      }
+    }
+  },
+  "description": "شرکت ExampleSolar؛ موجودی پنل خورشیدی\nتماس: 09123456789\nبله: https://ble.ir/example_supplier\nhttps://wa.me/989123456789\nsales@example.com\nwww.example.com",
+  "contact_phone": "09123456789",
+  "contact_email": "sales@example.com",
+  "priority": "normal",
+  "organization_name": "ExampleSolar"
+}

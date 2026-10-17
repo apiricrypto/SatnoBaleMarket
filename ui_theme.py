@@ -311,6 +311,7 @@ input[type=checkbox]{width:20px!important;height:20px!important;min-height:0!imp
 .ad-contacts{margin:8px 11px;padding:12px;border:1px solid #bce4dd;border-radius:11px;background:#f2fbf8;min-width:0}
 .ad-contacts>strong{font-size:13px;color:#075d4b}.contact-note{font-size:11px;line-height:1.8;color:#52675e;margin:5px 0 9px}
 .ad-contact-grid{display:grid;gap:7px;min-width:0}.ad-contact{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;min-height:44px;padding:8px 9px;border:1px solid #cce5de;border-radius:8px;background:white;font-size:12px;min-width:0}
+.business-editor{border:1px solid var(--satno-line);border-radius:12px;padding:16px;margin:14px 0;min-width:0}.business-editor legend{font-weight:700;color:#075d4b}.business-editor label{display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:0}.business-summary,.business-snapshot{display:grid;gap:5px;padding:10px 12px;margin:8px 11px;background:#eff6ff;border:1px solid #dbeafe;border-radius:10px;font-size:12px;overflow-wrap:anywhere}.business-snapshot{margin:8px 0;white-space:normal}.business-summary span,.business-snapshot span{font-size:11px;color:#52627a}
 .reviewed-contact{margin-top:10px;white-space:normal}.reviewed-contact>bdi{display:block;overflow-wrap:anywhere}td .ad-contacts{min-width:220px;max-width:340px;white-space:normal}td .ad-contacts a{white-space:normal}
 .contact-kind{font-weight:700}.contact-value{overflow-wrap:anywhere;min-width:0;max-width:100%;font-variant-numeric:tabular-nums}
 .contact-review{color:#61543e;background:#fffaf0;border-color:#e6d9b9}.more-contacts summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:12px;color:#315b4f}.more-contacts[open] summary{margin-bottom:5px}
@@ -372,5 +373,5 @@ def staff_document(document, user, current_path):
     script = """<script>document.querySelector('[data-staff-logout]').addEventListener('click',async function(){
 this.disabled=true;try{const r=await fetch('/api/auth/logout',{method:'POST'});if(!r.ok)throw Error();location.replace('/login');}
 catch(e){this.disabled=false;this.textContent='خطای ارتباط؛ تلاش مجدد';}});</script>"""
-    document = document.replace('</head>', '<link rel="icon" href="data:,"><script src="/assets/ad-contacts.js?v=7758-crm"></script></head>')
+    document = document.replace('</head>', '<link rel="icon" href="data:,"><script src="/assets/ad-contacts.js?v=business-v1"></script><script src="/assets/business-profile.js?v=business-v1"></script></head>')
     return document.replace('</body>', script + '</body>')

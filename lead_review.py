@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timezone
+from business_profiles import load_business_profile, validate_business_profile
 
 from db import connect, init_db
 
@@ -20,7 +22,11 @@ def get_review(message_id):
             "SELECT * FROM lead_reviews WHERE message_id=?",
             (message_id,),
         ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    result = dict(row)
+    result['business_profile'] = load_business_profile(result.get('business_profile'))
+    return result
 
 
 def save_review(message_id, reviewer, values):
@@ -81,55 +87,43 @@ def save_review(message_id, reviewer, values):
         exists = con.execute("SELECT 1 FROM messages WHERE id=?", (message_id,)).fetchone()
         if not exists:
             raise ValueError("message not found")
+        prior = con.execute("SELECT business_profile,contact FROM lead_reviews WHERE message_id=?", (message_id,)).fetchone()
+        previous_profile = load_business_profile(prior['business_profile']) if prior else None
+        supplied = values.get('business_profile') is not None
+        profile = values.get('business_profile') if supplied else previous_profile
+        if previous_profile and 'contact' not in values:
+            fields['contact'] = prior['contact']
+        if not supplied and profile is not None:
+            profile = dict(profile)
+            if profile.get('verified_contact') != fields['contact']:
+                profile['contact_verification'] = 'unverified'
+                profile['verification_note'] = ''
+        profile = validate_business_profile(profile, selected=status == 'selected',
+            primary_contact=fields['contact'], trusted_stored=not supplied)
+        if profile is not None:
+            if profile['contact_verification'] == 'confirmed':
+                unchanged = bool(previous_profile and previous_profile.get('contact_verification') == 'confirmed'
+                    and previous_profile.get('declared_name') == profile['declared_name']
+                    and previous_profile.get('entity_type') == profile['entity_type']
+                    and previous_profile.get('verification_note') == profile['verification_note']
+                    and previous_profile.get('verified_contact') == fields['contact'])
+                profile['contact_verified_by'] = previous_profile.get('contact_verified_by') if unchanged else reviewer
+                profile['contact_verified_at'] = previous_profile.get('contact_verified_at') if unchanged else now
+                profile['verified_contact'] = fields['contact']
+            else:
+                profile.update(contact_verified_by=None, contact_verified_at=None, verified_contact=None)
+        fields['business_profile'] = json.dumps(profile, ensure_ascii=False) if profile is not None else None
+        columns = ['message_id', *fields]
+        updates = ','.join(f'{key}=excluded.{key}' for key in fields)
         con.execute(
-            """INSERT INTO lead_reviews
-               (message_id,review_status,reviewed_category,product,brand,model,power,capacity,
-                price,currency,estimated_amount,estimated_currency,location,contact,priority,
-                notes,reviewed_by,reviewed_at,updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(message_id) DO UPDATE SET
-                 review_status=excluded.review_status,
-                 reviewed_category=excluded.reviewed_category,
-                 product=excluded.product,
-                 brand=excluded.brand,
-                 model=excluded.model,
-                 power=excluded.power,
-                 capacity=excluded.capacity,
-                 price=excluded.price,
-                 currency=excluded.currency,
-                 estimated_amount=excluded.estimated_amount,
-                 estimated_currency=excluded.estimated_currency,
-                 location=excluded.location,
-                 contact=excluded.contact,
-                 priority=excluded.priority,
-                 notes=excluded.notes,
-                 reviewed_by=excluded.reviewed_by,
-                 reviewed_at=excluded.reviewed_at,
-                 updated_at=excluded.updated_at""",
-            (
-                message_id,
-                fields["review_status"],
-                fields["reviewed_category"],
-                fields["product"],
-                fields["brand"],
-                fields["model"],
-                fields["power"],
-                fields["capacity"],
-                fields["price"],
-                fields["currency"],
-                fields["estimated_amount"],
-                fields["estimated_currency"],
-                fields["location"],
-                fields["contact"],
-                fields["priority"],
-                fields["notes"],
-                fields["reviewed_by"],
-                fields["reviewed_at"],
-                fields["updated_at"],
-            ),
+            'INSERT INTO lead_reviews (' + ','.join(columns) + ') VALUES (' + ','.join('?' for _ in columns) + ') '
+            'ON CONFLICT(message_id) DO UPDATE SET ' + updates,
+            [message_id, *fields.values()],
         )
         row = con.execute(
             "SELECT * FROM lead_reviews WHERE message_id=?",
             (message_id,),
         ).fetchone()
-    return dict(row)
+    result = dict(row)
+    result['business_profile'] = load_business_profile(result.get('business_profile'))
+    return result

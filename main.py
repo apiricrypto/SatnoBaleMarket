@@ -1,4 +1,5 @@
 from ad_contacts import extract_ad_contacts
+from business_profiles import suggest_business_profile, load_business_profile
 from sender_contacts import enrich_messages
 from ui_theme import staff_document
 import os
@@ -104,6 +105,12 @@ def save_message(m: MessageIn):
 def persian_font():
     from pathlib import Path
     return FileResponse(Path(__file__).with_name("assets") / "Vazirmatn-Regular.woff2", media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/assets/business-profile.js")
+def business_profile_script():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "business-profile.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/assets/ad-contacts.js")
@@ -401,7 +408,7 @@ def create_message(m: MessageIn, user=Depends(require_message_write)):
 
 @app.get("/api/messages")
 def list_messages(q: str = "", category: str = "", sender_id: str = "", date_from: str = "", date_to: str = "", limit: int = Query(100, ge=1, le=500), user=Depends(require_read)):
-    sql = "SELECT * FROM messages WHERE 1=1"
+    sql = "SELECT m.*,r.business_profile,r.reviewed_by AS business_reviewed_by FROM messages m LEFT JOIN lead_reviews r ON r.message_id=m.id WHERE 1=1"
     args=[]
     if category:
         sql += " AND category=?"; args.append(category)
@@ -413,6 +420,12 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     with connect() as con:
         rows=[dict(r) for r in con.execute(sql,args).fetchall()]
     enrich_messages(rows)
+    for row in rows:
+        try:
+            row['business_profile'] = load_business_profile(row.get('business_profile'))
+        except ValueError:
+            row['business_profile'] = None
+        row['business_name'] = (row.get('business_profile') or {}).get('declared_name', '')
     if sender_id:
         key = sender_id.strip().lstrip('@').lower()
         fields = ('sender_username',) if sender_id.strip().startswith('@') else ('sender_id', 'sender_username', 'sender_name')
@@ -448,6 +461,7 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
         r["sender_clickable"] = bool(r.get("sender_link"))
         r["sender_contact_role"] = "publisher"
         r["ad_contacts"] = extract_ad_contacts(r.get("text"))
+        r["business_suggestion"] = suggest_business_profile(r.get("text"), r.get("category"))
     return rows
 
 @app.get("/api/sources")
@@ -620,7 +634,7 @@ async function load(){
    '<div class="metric"><div class="label">منابع فعال</div><div class="value">'+s.active_sources+'</div><div class="foot">کانال/گروه تحت پایش</div></div>'+
    '<div class="metric"><div class="label">History خوانده‌شده</div><div class="value">'+s.history_scanned+'</div><div class="foot">رکورد بررسی‌شده</div></div>'+
    '<div class="metric"><div class="label">آخرین Sync</div><div class="value '+((ls&&ls.status==='ok')?'kpi-good':'kpi-warn')+'">'+(ls?(ls.status||'—'):'—')+'</div><div class="foot">'+(ls?(ls.finished_at||ls.started_at||''):'هنوز ثبت نشده')+'</div></div>';
-   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div>'+adContactsHtml(r)+'<div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی و آماده‌سازی CRM</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div>'+businessSummaryHtml(r.business_profile||r.business_suggestion,!!r.business_profile)+adContactsHtml(r)+'<div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی و آماده‌سازی CRM</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');dateTouched={from:false,to:false};document.getElementById('cat').value='';load();}

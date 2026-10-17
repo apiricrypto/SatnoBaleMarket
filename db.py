@@ -215,6 +215,7 @@ def init_db():
         _ensure_column(con, "lead_reviews", "estimated_amount", "INTEGER")
         _ensure_column(con, "lead_reviews", "estimated_currency", "TEXT")
         _ensure_column(con, "lead_reviews", "priority", "TEXT")
+        _ensure_column(con, "lead_reviews", "business_profile", "TEXT")
         con.execute("CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(review_status)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS crm_lead_outbox (

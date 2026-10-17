@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from db import connect, init_db
 from ad_contacts import extract_ad_contacts, extract_reviewed_contacts
+from business_profiles import build_business_context
 
 load_dotenv(".env.local")
 
@@ -225,6 +226,17 @@ def build_lead_payload(row, review=None):
         "priority": review.get("priority") or "normal",
     }
 
+    business = build_business_context(row, review)
+    if business is not None:
+        raw_payload['business_context'] = business
+        party = business['party']
+        if party['entity_type'] == 'company' and party['declared_name']:
+            payload['organization_name'] = party['declared_name']
+            if party['contact_person']:
+                payload['contact_name'] = party['contact_person']
+        elif party['entity_type'] == 'person' and party['declared_name']:
+            payload['contact_name'] = party['declared_name']
+
     amount = review.get("estimated_amount")
     currency = (review.get("estimated_currency") or "").strip().upper()
     if amount is not None or currency:
@@ -394,6 +406,15 @@ def send_outbox_item(outbox_id):
     if not review or review.get("review_status") != "selected":
         return {"status": "blocked", "outbox_id": outbox_id,
                 "message": "lead must remain reviewed and selected before sending"}
+
+    try:
+        queued_payload = json.loads(outbox['payload'])
+        business = (queued_payload.get('raw_payload') or {}).get('business_context')
+    except (ValueError, TypeError, AttributeError):
+        business = None  # Existing invalid-payload handling below remains authoritative.
+    if business is not None or review.get("business_profile"):
+        return {'status': 'blocked', 'reason': 'business_contract_pending', 'outbox_id': outbox_id,
+                'message': 'مسیر ثبت تأمین‌کننده/خریدار در انتظار هماهنگی قرارداد CRM است.'}
 
     url = (os.getenv("SATNO_CRM_LEAD_URL") or "").strip()
     token = (os.getenv("SATNO_BALE_MARKET_INGEST_TOKEN") or "").strip()

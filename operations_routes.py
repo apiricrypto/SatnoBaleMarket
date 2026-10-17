@@ -1,6 +1,7 @@
 from ui_theme import staff_document
 from ad_contacts import extract_ad_contacts, extract_reviewed_contacts
 from sender_contacts import enrich_messages
+from business_profiles import suggest_business_profile, load_business_profile
 import asyncio
 import json
 import os
@@ -12,7 +13,7 @@ from bale import BaleClient
 from bale.peer import Peer
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
 from auth import resolve_session, role_allows
@@ -66,6 +67,7 @@ class ReviewIn(BaseModel):
     contact: Optional[str] = None
     priority: Optional[str] = "normal"
     notes: Optional[str] = None
+    business_profile: Optional[dict] = None
 
 
 class SourceCreate(BaseModel):
@@ -103,6 +105,12 @@ def _decode_message(row):
             item[key] = json.loads(item.get(key) or "[]")
         except Exception:
             item[key] = []
+    try:
+        item['business_profile'] = load_business_profile(item.get('business_profile'))
+    except ValueError:
+        item['business_profile'] = None
+        item['business_profile_error'] = 'اطلاعات طرف تجاری نیازمند بازبینی است.'
+    item['business_suggestion'] = suggest_business_profile(item.get('text'), item.get('category'))
     return item
 
 
@@ -113,7 +121,7 @@ def review_messages(message_id: Optional[int] = None, review_status: str = "", c
         SELECT m.*, r.review_status,r.reviewed_category,r.product,r.brand,r.model,
                r.power,r.capacity,r.price,r.currency,r.estimated_amount,
                r.estimated_currency,r.location,r.contact,r.priority,r.notes,
-               r.reviewed_by,r.reviewed_at,r.updated_at AS review_updated_at
+               r.reviewed_by,r.reviewed_at,r.business_profile,r.updated_at AS review_updated_at
         FROM messages m LEFT JOIN lead_reviews r ON r.message_id=m.id WHERE 1=1
     """
     args = []
@@ -139,7 +147,7 @@ def review_messages(message_id: Optional[int] = None, review_status: str = "", c
 @router.patch("/api/review/messages/{message_id}")
 def update_review(message_id: int, payload: ReviewIn, user=Depends(require_review)):
     try:
-        return save_review(message_id, user["username"], payload.model_dump())
+        return save_review(message_id, user["username"], payload.model_dump(exclude_unset=True))
     except ValueError as exc:
         status = 404 if str(exc) == "message not found" else 400
         raise HTTPException(status_code=status, detail=str(exc))
@@ -160,29 +168,51 @@ def crm_outbox(limit: int = 100, user=Depends(require_read)):
     limit = max(1, min(int(limit), 500))
     with connect() as con:
         rows = con.execute(
-            """SELECT id,message_id,requested_by,status,last_error,created_at,sent_at,payload,
-                      attempts,last_attempt_at,next_retry_at,crm_lead_id,crm_status,
-                      crm_request_id,duplicate,last_http_status
-               FROM crm_lead_outbox ORDER BY id DESC LIMIT ?""",
+            """SELECT o.id,o.message_id,o.requested_by,o.status,o.last_error,o.created_at,o.sent_at,o.payload,
+                      o.attempts,o.last_attempt_at,o.next_retry_at,o.crm_lead_id,o.crm_status,
+                      o.crm_request_id,o.duplicate,o.last_http_status,r.business_profile AS current_business_profile
+               FROM crm_lead_outbox o LEFT JOIN lead_reviews r ON r.message_id=o.message_id
+               ORDER BY o.id DESC LIMIT ?""",
             (limit,),
         ).fetchall()
     items = []
     for row in rows:
         item = dict(row)
+        current_business_profile = item.pop('current_business_profile', None)
         try:
             payload = json.loads(item.pop("payload") or "{}")
             raw = payload.get("raw_payload") or {}
             message = raw.get("message") or {}
             review = raw.get("review") or {}
+            item['business_context'] = raw.get('business_context')
+            item['delivery_blocked_reason'] = 'business_contract_pending' if item['business_context'] is not None or current_business_profile else None
             # Show the queued snapshot, not a possibly newer source message.
             item["ad_contacts"] = extract_ad_contacts(message.get("text"))
             item["reviewed_contact"] = review.get("contact")
             item["reviewed_contacts"] = extract_reviewed_contacts(review.get("contact"))
         except (ValueError, TypeError, AttributeError):
             item.pop("payload", None)
-            item.update(ad_contacts=[], reviewed_contact=None, reviewed_contacts=[])
+            item.update(ad_contacts=[], reviewed_contact=None, reviewed_contacts=[], business_context=None, delivery_blocked_reason=None)
         items.append(item)
     return items
+
+
+@router.get("/api/crm/outbox/{outbox_id}/handoff")
+def crm_handoff(outbox_id: int, user=Depends(require_review)):
+    with connect() as con:
+        row = con.execute("SELECT payload FROM crm_lead_outbox WHERE id=?", (outbox_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="outbox item not found")
+    try:
+        payload = json.loads(row['payload'])
+        if not isinstance(payload, dict):
+            raise ValueError('invalid payload')
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=409, detail="queued payload needs review") from None
+    return JSONResponse(payload, headers={
+        'Cache-Control': 'no-store',
+        'Content-Disposition': f'attachment; filename="satno-crm-handoff-{outbox_id}.json"',
+    })
 
 
 @router.get("/api/crm/readiness")
@@ -653,9 +683,9 @@ def review_page(request: Request):
 <style>body{font-family:system-ui,Tahoma;background:#f6f8fb;margin:0;color:#152235}.wrap{max-width:1200px;margin:auto;padding:20px}.card{background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}input,select,textarea,button{box-sizing:border-box;width:100%;padding:9px;border:1px solid #d7dde7;border-radius:8px}textarea{min-height:80px}.meta{font-size:12px;color:#667085}.actions{display:flex;gap:8px;margin-top:10px}.actions button{width:auto}@media(max-width:800px){.grid{grid-template-columns:1fr}}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>بررسی سرنخ‌ها</h2><div class="muted">پیام‌های بازار را بازبینی، اصلاح و برای CRM انتخاب کنید.</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review" aria-current="page">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div></div><div class="card toolbar"><select id="filter"><option value="unreviewed">بررسی‌نشده</option><option value="">همه</option><option value="reviewed">بررسی‌شده</option><option value="selected">انتخاب‌شده</option><option value="rejected">ردشده</option></select><button class="primary" onclick="load()">بارگذاری</button><span class="muted">روی هر کارت می‌توانید اطلاعات استخراج‌شده را اصلاح کنید.</span></div><div id="list"></div></div>
 <script>
 var requestedId=new URLSearchParams(location.search).get('message_id');function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;')}function first(a){return a&&a.length?a[0]:''}
-async function load(){var url=requestedId?'/api/review/messages?message_id='+encodeURIComponent(requestedId):'/api/review/messages?limit=50&review_status='+encodeURIComponent(filter.value);var r=await fetch(url),rows=await r.json(),html='';rows.forEach(function(x){html+='<div class="card result-card cat-'+esc(x.reviewed_category||x.category||'other')+'" data-id="'+x.id+'"><div class="section-head"><div><div class="meta">#'+x.id+' • '+esc(x.chat_name||'-')+' • '+senderHtml(x)+' • '+esc(x.sent_at||'')+'</div><div class="message">'+esc(x.text)+'</div></div><span class="pill">'+esc(x.review_status||'بررسی‌نشده')+'</span></div>'+adContactsHtml(x)+'<div class="grid"><select class="category"><option value="supplier_seller">تأمین‌کننده/فروشنده</option><option value="stock_availability">موجودی/فروش</option><option value="buyer_demand">تقاضای خرید</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input class="product" placeholder="محصول" value="'+esc(x.product||first(x.product_types))+'"><input class="brand" placeholder="برند" value="'+esc(x.brand||first(x.brands))+'"><input class="model" placeholder="مدل" value="'+esc(x.model||first(x.models))+'"><input class="power" placeholder="توان" value="'+esc(x.power||first(x.power_values))+'"><input class="capacity" placeholder="ظرفیت" value="'+esc(x.capacity||first(x.energy_values))+'"><input class="price" placeholder="قیمت متن پیام" value="'+esc(x.price||first(x.price_values))+'"><input class="currency" placeholder="واحد قیمت" value="'+esc(x.currency||first(x.currency_values))+'"><input class="location" placeholder="محل" value="'+esc(x.location||first(x.locations))+'"><label>تماس اصلی CRM (قابل اصلاح)<input class="contact" list="contacts-'+x.id+'" placeholder="شماره، ایمیل یا لینک" value="'+esc(x.contact||first((x.ad_contacts||[]).filter(function(c){return c.href&&c.kind!=='whatsapp_group'}).map(function(c){return c.kind==='phone'||c.kind==='email'?c.value:c.href})))+'"><datalist id="contacts-'+x.id+'">'+(x.ad_contacts||[]).filter(function(c){return c.href}).map(function(c){return '<option value="'+esc(c.kind==='phone'||c.kind==='email'?c.value:c.href)+'">'+esc(c.kind)+'</option>'}).join('')+'</datalist></label><input class="estimated_amount" type="number" min="0" placeholder="مبلغ نرمال‌شده CRM"><input class="estimated_currency" maxlength="3" placeholder="ISO مثل IRR"><select class="priority"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select></div><p class="muted">همهٔ راه‌های تماس داخل آگهی همراه سرنخ در صف CRM ذخیره می‌شوند. ورود به صف به معنی ارسال زنده یا تأیید مالکیت نیست.</p><textarea class="notes" placeholder="یادداشت بررسی">'+esc(x.notes||'')+'</textarea><div class="actions"><button onclick="save(this,\'reviewed\')">ثبت بررسی</button><button onclick="save(this,\'selected\')">انتخاب برای CRM</button><button onclick="save(this,\'rejected\')">رد</button><button onclick="queueLead(this)">قرار دادن در صف CRM</button><span class="result"></span></div></div>'});list.innerHTML=html||'<div class="empty-state">سرنخی با این وضعیت پیدا نشد. فیلتر بررسی را تغییر دهید.</div>';rows.forEach(function(x){var c=document.querySelector('[data-id="'+x.id+'"]');c.querySelector('.category').value=x.reviewed_category||x.category||'other';c.querySelector('.priority').value=x.priority||'normal';if(x.estimated_amount!=null)c.querySelector('.estimated_amount').value=x.estimated_amount;if(x.estimated_currency)c.querySelector('.estimated_currency').value=x.estimated_currency})}
-function body(c,status){function g(s){return c.querySelector('.'+s).value.trim()}return{review_status:status,reviewed_category:g('category'),product:g('product')||null,brand:g('brand')||null,model:g('model')||null,power:g('power')||null,capacity:g('capacity')||null,price:g('price')||null,currency:g('currency')||null,estimated_amount:g('estimated_amount')?Number(g('estimated_amount')):null,estimated_currency:g('estimated_currency')||null,location:g('location')||null,contact:g('contact')||null,priority:g('priority'),notes:g('notes')||null}}
-async function save(btn,status){var c=btn.closest('.card'),id=c.dataset.id;try{var r=await fetch('/api/review/messages/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body(c,status))}),d=await r.json();c.querySelector('.result').textContent=r.ok?'ثبت شد':(d.detail||'خطا');return r.ok}catch(e){c.querySelector('.result').textContent='خطای ارتباط؛ دوباره تلاش کنید';return false}}
+async function load(){var url=requestedId?'/api/review/messages?message_id='+encodeURIComponent(requestedId):'/api/review/messages?limit=50&review_status='+encodeURIComponent(filter.value);var r=await fetch(url),rows=await r.json(),html='';rows.forEach(function(x){html+='<div class="card result-card cat-'+esc(x.reviewed_category||x.category||'other')+'" data-id="'+x.id+'"><div class="section-head"><div><div class="meta">#'+x.id+' • '+esc(x.chat_name||'-')+' • '+senderHtml(x)+' • '+esc(x.sent_at||'')+'</div><div class="message">'+esc(x.text)+'</div></div><span class="pill">'+esc(x.review_status||'بررسی‌نشده')+'</span></div>'+businessEditorHtml(x)+adContactsHtml(x)+'<div class="grid"><select class="category"><option value="supplier_seller">تأمین‌کننده/فروشنده</option><option value="stock_availability">موجودی/فروش</option><option value="buyer_demand">تقاضای خرید</option><option value="inquiry_project">استعلام/پروژه</option><option value="other">سایر</option></select><input class="product" placeholder="محصول" value="'+esc(x.product||first(x.product_types))+'"><input class="brand" placeholder="برند" value="'+esc(x.brand||first(x.brands))+'"><input class="model" placeholder="مدل" value="'+esc(x.model||first(x.models))+'"><input class="power" placeholder="توان" value="'+esc(x.power||first(x.power_values))+'"><input class="capacity" placeholder="ظرفیت" value="'+esc(x.capacity||first(x.energy_values))+'"><input class="price" placeholder="قیمت متن پیام" value="'+esc(x.price||first(x.price_values))+'"><input class="currency" placeholder="واحد قیمت" value="'+esc(x.currency||first(x.currency_values))+'"><input class="location" placeholder="محل" value="'+esc(x.location||first(x.locations))+'"><label>تماس اصلی CRM (قابل اصلاح)<input class="contact" list="contacts-'+x.id+'" placeholder="شماره، ایمیل یا لینک" value="'+esc(x.contact||first((x.ad_contacts||[]).filter(function(c){return c.href&&c.kind!=='whatsapp_group'}).map(function(c){return c.kind==='phone'||c.kind==='email'?c.value:c.href})))+'"><datalist id="contacts-'+x.id+'">'+(x.ad_contacts||[]).filter(function(c){return c.href}).map(function(c){return '<option value="'+esc(c.kind==='phone'||c.kind==='email'?c.value:c.href)+'">'+esc(c.kind)+'</option>'}).join('')+'</datalist></label><input class="estimated_amount" type="number" min="0" placeholder="مبلغ نرمال‌شده CRM"><input class="estimated_currency" maxlength="3" placeholder="ISO مثل IRR"><select class="priority"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select></div><p class="muted">همهٔ راه‌های تماس داخل آگهی همراه سرنخ در صف CRM ذخیره می‌شوند. ورود به صف به معنی ارسال زنده یا تأیید مالکیت نیست.</p><textarea class="notes" placeholder="یادداشت بررسی">'+esc(x.notes||'')+'</textarea><div class="actions"><button onclick="save(this,\'reviewed\')">ثبت بررسی</button><button onclick="save(this,\'selected\')">انتخاب برای CRM</button><button onclick="save(this,\'rejected\')">رد</button><button data-queue-business onclick="queueLead(this)">تکمیل اطلاعات و ورود به صف CRM</button><span class="result"></span></div></div>'});list.innerHTML=html||'<div class="empty-state">سرنخی با این وضعیت پیدا نشد. فیلتر بررسی را تغییر دهید.</div>';rows.forEach(function(x){var c=document.querySelector('[data-id="'+x.id+'"]');c.querySelector('.category').value=x.reviewed_category||x.category||'other';c.querySelector('.priority').value=x.priority||'normal';if(x.estimated_amount!=null)c.querySelector('.estimated_amount').value=x.estimated_amount;if(x.estimated_currency)c.querySelector('.estimated_currency').value=x.estimated_currency;initBusinessEditor(c)})}
+function body(c,status){function g(s){return c.querySelector('.'+s).value.trim()}return{business_profile:businessBody(c),review_status:status,reviewed_category:g('category'),product:g('product')||null,brand:g('brand')||null,model:g('model')||null,power:g('power')||null,capacity:g('capacity')||null,price:g('price')||null,currency:g('currency')||null,estimated_amount:g('estimated_amount')?Number(g('estimated_amount')):null,estimated_currency:g('estimated_currency')||null,location:g('location')||null,contact:g('contact')||null,priority:g('priority'),notes:g('notes')||null}}
+async function save(btn,status){var c=btn.closest('.card'),id=c.dataset.id;var error=businessValidationError(c,status);if(error){c.querySelector('.result').textContent=error;return false}try{var r=await fetch('/api/review/messages/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body(c,status))}),d=await r.json();c.querySelector('.result').textContent=r.ok?'ثبت شد':(d.detail||'خطا');if(r.ok)updateBusinessAudit(c,d.business_profile);return r.ok}catch(e){c.querySelector('.result').textContent='خطای ارتباط؛ دوباره تلاش کنید';return false}}
 async function queueLead(btn){var c=btn.closest('.card'),id=c.dataset.id;btn.disabled=true;try{if(!(await save(btn,'selected')))return;var r=await fetch('/api/leads/'+id+'/queue',{method:'POST'}),d=await r.json();c.querySelector('.result').textContent=r.ok?('در صف CRM #'+d.outbox_id):(d.detail||'خطا')}catch(e){c.querySelector('.result').textContent='خطای ارتباط؛ دوباره تلاش کنید'}finally{btn.disabled=false}}
 
 load();
@@ -961,4 +991,4 @@ def crm_outbox_page(request: Request):
     user = _user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse(staff_document("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRM Outbox</title><style>body{margin:0}.wrap{max-width:1200px;margin:auto;padding:20px}td,th{padding:10px;text-align:right;font-size:13px}button{padding:8px}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>صف اتصال SATNO CRM</h2><div class="muted">وضعیت Leadهای انتخاب‌شده و آمادگی اتصال Alpha 2.2</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox" aria-current="page">صف CRM</a><a href="/admin/users">کاربران</a></div></div><p class="muted">اطلاعات تماسِ ذخیره‌شده هنگام ورود به صف نمایش داده می‌شود. ارسال زنده نیازمند اتصال تأییدشدهٔ CRM است.</p><div id="ready" class="metric-grid"></div><div class="card"><table><thead><tr><th>ID</th><th>پیام و اطلاعات تماس</th><th>وضعیت</th><th>تلاش</th><th>CRM ID</th><th>HTTP</th><th>خطا</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div></div><script>function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;')}async function load(){var a=await fetch('/api/crm/readiness'),b=await fetch('/api/crm/outbox'),rd=await a.json(),o=await b.json();ready.innerHTML='<div class="metric"><div class="label">Connector</div><div class="value">'+esc(rd.connector)+'</div></div><div class="metric"><div class="label">Endpoint</div><div class="value '+(rd.url_configured?'kpi-good':'kpi-warn')+'">'+(rd.url_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">Token</div><div class="value '+(rd.token_configured?'kpi-good':'kpi-warn')+'">'+(rd.token_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">ارسال زنده</div><div class="value '+(rd.live_delivery_enabled?'kpi-good':'kpi-warn')+'">'+(rd.live_delivery_enabled?'فعال':'غیرفعال')+'</div></div>';var h='';o.forEach(function(x){h+='<tr><td>'+x.id+'</td><td><a href="/review?message_id='+x.message_id+'">پیام #'+x.message_id+'</a>'+adContactsHtml(x)+(x.reviewed_contact?'<div class="reviewed-contact">'+(adContactsHtml({ad_contacts:x.reviewed_contacts},{title:'تماس اصلی بازبینی‌شده',note:'ثبت‌شده توسط بررسی‌کننده؛ مالکیت تأیید نشده است.'})||'<strong>تماس اصلی بازبینی‌شده</strong><bdi dir="ltr">'+esc(x.reviewed_contact)+'</bdi>')+'</div>':'')+'</td><td>'+esc(x.status)+'</td><td>'+(x.attempts||0)+'</td><td>'+esc(x.crm_lead_id||'')+'</td><td>'+esc(x.last_http_status||'')+'</td><td>'+esc(x.last_error||'')+'</td><td><button '+(rd.live_delivery_enabled?'':'disabled')+' onclick="sendOne('+x.id+')">'+(rd.live_delivery_enabled?'ارسال/تلاش مجدد':'اتصال زنده غیرفعال')+'</button></td></tr>'});rows.innerHTML=h||'<tr><td colspan="8"><div class="empty-state">صف CRM خالی است. سرنخ‌های منتخب پس از بررسی در این بخش نمایش داده می‌شوند.</div></td></tr>'}async function sendOne(id){var r=await fetch('/api/crm/outbox/'+id+'/send',{method:'POST'}),d=await r.json();alert(d.status||d.detail||'نتیجه ثبت شد');load()}load();</script></body></html>""", _user(request), request.url.path))
+    return HTMLResponse(staff_document("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRM Outbox</title><style>body{margin:0}.wrap{max-width:1200px;margin:auto;padding:20px}td,th{padding:10px;text-align:right;font-size:13px}button{padding:8px}</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><div class="section-head"><div><h2>صف اتصال SATNO CRM</h2><div class="muted">وضعیت Leadهای انتخاب‌شده و آمادگی اتصال Alpha 2.2</div></div><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox" aria-current="page">صف CRM</a><a href="/admin/users">کاربران</a></div></div><p class="muted">اطلاعات تماسِ ذخیره‌شده هنگام ورود به صف نمایش داده می‌شود. ارسال زنده نیازمند اتصال تأییدشدهٔ CRM است.</p><div id="ready" class="metric-grid"></div><div class="card"><table><thead><tr><th>ID</th><th>پیام و اطلاعات تماس</th><th>وضعیت</th><th>تلاش</th><th>CRM ID</th><th>HTTP</th><th>خطا</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div></div><script>function esc(v){var d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;')}async function load(){var a=await fetch('/api/crm/readiness'),b=await fetch('/api/crm/outbox'),rd=await a.json(),o=await b.json();ready.innerHTML='<div class="metric"><div class="label">Connector</div><div class="value">'+esc(rd.connector)+'</div></div><div class="metric"><div class="label">Endpoint</div><div class="value '+(rd.url_configured?'kpi-good':'kpi-warn')+'">'+(rd.url_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">Token</div><div class="value '+(rd.token_configured?'kpi-good':'kpi-warn')+'">'+(rd.token_configured?'آماده':'تنظیم نیست')+'</div></div><div class="metric"><div class="label">ارسال زنده</div><div class="value '+(rd.live_delivery_enabled?'kpi-good':'kpi-warn')+'">'+(rd.live_delivery_enabled?'فعال':'غیرفعال')+'</div></div>';var h='';o.forEach(function(x){h+='<tr><td>'+x.id+'</td><td><a href="/review?message_id='+x.message_id+'">پیام #'+x.message_id+'</a> • <a href="/api/crm/outbox/'+x.id+'/handoff">دریافت بستهٔ CRM</a>'+businessSnapshotHtml(x.business_context)+adContactsHtml(x)+(x.reviewed_contact?'<div class="reviewed-contact">'+(adContactsHtml({ad_contacts:x.reviewed_contacts},{title:'تماس اصلی بازبینی‌شده',note:'ثبت‌شده توسط بررسی‌کننده؛ مالکیت تأیید نشده است.'})||'<strong>تماس اصلی بازبینی‌شده</strong><bdi dir="ltr">'+esc(x.reviewed_contact)+'</bdi>')+'</div>':'')+'</td><td>'+esc(x.status)+'</td><td>'+(x.attempts||0)+'</td><td>'+esc(x.crm_lead_id||'')+'</td><td>'+esc(x.last_http_status||'')+'</td><td>'+esc(x.last_error||'')+'</td><td><button '+(rd.live_delivery_enabled&&!x.delivery_blocked_reason?'':'disabled')+' onclick="sendOne('+x.id+')">'+(x.delivery_blocked_reason?'در انتظار قرارداد CRM':rd.live_delivery_enabled?'ارسال/تلاش مجدد':'اتصال زنده غیرفعال')+'</button></td></tr>'});rows.innerHTML=h||'<tr><td colspan="8"><div class="empty-state">صف CRM خالی است. سرنخ‌های منتخب پس از بررسی در این بخش نمایش داده می‌شوند.</div></td></tr>'}async function sendOne(id){var r=await fetch('/api/crm/outbox/'+id+'/send',{method:'POST'}),d=await r.json();alert(d.status||d.detail||'نتیجه ثبت شد');load()}load();</script></body></html>""", _user(request), request.url.path))

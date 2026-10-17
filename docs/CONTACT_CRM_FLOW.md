@@ -1,5 +1,7 @@
 # Contacts: market → review → CRM outbox
 
+Historical contact-only release `fd36c9e`. For the subsequent company/person and supplier/buyer review extension, its additive review column and pending receiver-contract gate, see [CRM_MARKET_PARTY_HANDOFF_V1.md](CRM_MARKET_PARTY_HANDOFF_V1.md). The no-schema-change statement below applies to this earlier contact-only release.
+
 This release extends the deployed `7758b7a` ad contact display. No database migration, new dependency, source/schedule change or production configuration change is needed.
 
 ## Operator workflow

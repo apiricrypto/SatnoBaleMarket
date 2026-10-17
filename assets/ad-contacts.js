@@ -11,6 +11,8 @@ function senderHtml(r){
 }
 function adContactsHtml(r,options){
  options=options||{};
+ const party=r.business_profile||(r.business_context&&r.business_context.party);
+ const note=party?(party.contact_verification==='confirmed'?'تعلق تماس اصلی توسط کارشناس تأیید شده؛ سایر تماس‌ها صرفاً از متن استخراج شده‌اند.':'اطلاعات تماس از متن آگهی استخراج شده‌اند؛ تعلق تماس اصلی هنوز بررسی نشده است.'):'از متن پیام؛ هویت مخاطب تأیید نشده است.';
  const contacts=Array.isArray(r.ad_contacts)?r.ad_contacts:[];
  if(!contacts.length)return '';
  const labels={phone:'تلفن درج‌شده',whatsapp:'واتس‌اپ',bale:'بله',email:'ایمیل',website:'وب‌سایت',whatsapp_group:'گروه واتس‌اپ',username:'شناسه؛ شبکه نامشخص',needs_review:'پیوند نیازمند بررسی'};
@@ -21,7 +23,7 @@ function adContactsHtml(r,options){
    return '<span class="ad-contact contact-review">'+content+'</span>';
  }
  const extra=contacts.length>3?'<details class="more-contacts"><summary>اطلاعات تماس بیشتر ('+(contacts.length-3)+')</summary><div class="ad-contact-grid">'+contacts.slice(3).map(item).join('')+'</div></details>':'';
- return '<section class="ad-contacts" aria-label="اطلاعات تماس داخل آگهی"><strong>'+contactEscape(options.title||'اطلاعات تماس داخل آگهی')+'</strong><p class="contact-note">'+contactEscape(options.note||'از متن پیام؛ هویت مخاطب تأیید نشده است.')+'</p><div class="ad-contact-grid">'+contacts.slice(0,3).map(item).join('')+'</div>'+extra+'</section>';
+ return '<section class="ad-contacts" aria-label="اطلاعات تماس داخل آگهی"><strong>'+contactEscape(options.title||'اطلاعات تماس داخل آگهی')+'</strong><p class="contact-note">'+contactEscape(options.note||note)+'</p><div class="ad-contact-grid">'+contacts.slice(0,3).map(item).join('')+'</div>'+extra+'</section>';
 }
 
 window.senderHtml=senderHtml;window.adContactsHtml=adContactsHtml;

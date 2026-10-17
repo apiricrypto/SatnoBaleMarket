@@ -125,7 +125,20 @@ def check_layout(base, password, changed_password, out, chromium):
                     expect(card.locator('a[href="https://ble.ir/ad_demo_contact"]')).to_be_visible()
                     contact = card.get_by_label("تماس اصلی CRM (قابل اصلاح)")
                     expect(contact).to_have_value("09123456789")
+                    expect(card.get_by_label("نام اعلام‌شدهٔ طرف تجاری", exact=True)).to_have_value("ExampleSolar")
+                    expect(card.get_by_label("نوع طرف تجاری", exact=True)).to_have_value("company")
+                    expect(card.get_by_label("نقش تجاری", exact=True)).to_have_value("supplier")
                     if width == 375:
+                        card.get_by_label("نقش تجاری", exact=True).select_option("buyer")
+                        expect(card.locator("[data-queue-business]")).to_have_text("ثبت سرنخ خرید در صف CRM")
+                        card.get_by_label("نقش تجاری", exact=True).select_option("supplier,buyer")
+                        expect(card.locator("[data-queue-business]")).to_have_text("ثبت طرف تجاری با هر دو نقش در صف CRM")
+                        card.get_by_label("نقش تجاری", exact=True).select_option("supplier")
+                    if width == 375:
+                        card.get_by_label("تعلق تماس اصلی به طرف تجاری", exact=True).select_option("confirmed")
+                        card.locator("[data-queue-business]").click()
+                        expect(card.locator('.result')).to_contain_text("توضیح بررسی")
+                        assert page.request.get(base + "/api/crm/outbox").json() == []
                         unsafe = '"><svg data-injected-contact onload="window.contactInjected=true">'
                         contact.fill(unsafe)
                         card.get_by_role("button", name="ثبت بررسی", exact=True).click()
@@ -134,8 +147,12 @@ def check_layout(base, password, changed_password, out, chromium):
                         expect(card.locator('.contact')).to_have_value(unsafe)
                         expect(page.locator('[data-injected-contact]')).to_have_count(0)
                         contact.fill("09123456789")
-                    card.get_by_role("button", name="قرار دادن در صف CRM", exact=True).click()
+                        card.get_by_label("تعلق تماس اصلی به طرف تجاری", exact=True).select_option("confirmed")
+                        card.get_by_label("توضیح بررسی تعلق تماس", exact=True).fill("تأیید صرفاً نمایشی در محیط تست")
+                    card.locator("[data-queue-business]").click()
                     expect(card.locator('.result')).to_contain_text("در صف CRM #")
+                    expect(card.locator('.party-audit')).to_contain_text("demo-admin")
+                    expect(card.locator('.ad-contacts .contact-note')).to_contain_text("سایر تماس‌ها")
                 if path == "/crm/outbox":
                     expect(page.locator('a[href="tel:+989123456789"]').first).to_be_visible()
                     expect(page.locator('a[href="https://ble.ir/ad_demo_contact"]')).to_be_visible()
@@ -144,8 +161,12 @@ def check_layout(base, password, changed_password, out, chromium):
                     assert len(snapshot) == 1, "Requeue must preserve the outbox row"
                     readiness = page.request.get(base + "/api/crm/readiness").json()
                     assert not readiness["live_delivery_enabled"]
-                    expect(page.get_by_role("button", name="اتصال زنده غیرفعال", exact=True)).to_be_disabled()
-                    assert page.request.post(base + "/api/crm/outbox/" + str(snapshot[0]["id"]) + "/send").json()["status"] == "queued"
+                    expect(page.get_by_role("button", name="در انتظار قرارداد CRM", exact=True)).to_be_disabled()
+                    expect(page.locator('.business-snapshot')).to_contain_text("ExampleSolar")
+                    expect(page.locator('.business-snapshot')).to_contain_text("بانک تأمین‌کنندگان")
+                    handoff = page.request.get(base + "/api/crm/outbox/" + str(snapshot[0]["id"]) + "/handoff").json()
+                    assert handoff["raw_payload"]["business_context"]["intended_intake"] == "supplier_intake"
+                    assert page.request.post(base + "/api/crm/outbox/" + str(snapshot[0]["id"]) + "/send").json()["reason"] == "business_contract_pending"
                 assert page.locator('nav a[href="/profile/password"]').count() == 1
                 assert page.locator('nav img[src="/assets/satno-logo.jpg"]').evaluate(
                     "img => img.complete && img.naturalWidth === 1280"
@@ -305,7 +326,7 @@ def main():
             create_user("demo-" + role, password, role, "کاربر آزمایشی " + role)
         for i, text in enumerate(
             [
-                "فروش پنل خورشیدی ۵۵۰ وات در تهران",
+                "شرکت ExampleSolar؛ فروش پنل خورشیدی ۵۵۰ وات در تهران",
                 "خریدار اینورتر ۱۰ کیلووات در شیراز",
                 "موجودی پنل JA Solar 580 وات",
                 "استعلام پروژه نیروگاه خورشیدی ۲۰ کیلووات",
