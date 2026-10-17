@@ -77,6 +77,38 @@ def check_layout(base, password, changed_password, out, chromium):
                 page.goto(base + path)
                 page.wait_for_load_state("networkidle")
                 if path == "/":
+                    card = page.locator(".result-card").filter(
+                        has=page.locator('a[href="tel:+989123456789"]')
+                    )
+                    expect(card).to_have_count(1)
+                    expect(card.locator(".meta")).to_contain_text(
+                        "پروفایل منتشرکننده پیام"
+                    )
+                    expect(card.locator(".ad-contacts")).to_contain_text(
+                        "اطلاعات تماس داخل آگهی"
+                    )
+                    expect(
+                        card.locator(
+                            '.ad-contacts a[href="https://wa.me/989123456789"]'
+                        )
+                    ).to_be_visible()
+                    expect(
+                        card.locator(
+                            '.ad-contacts a[href="https://ble.ir/ad_demo_contact"]'
+                        )
+                    ).to_be_visible()
+                    card.locator("summary").click()
+                    expect(
+                        card.locator('a[href="mailto:sales@example.com"]')
+                    ).to_be_visible()
+                    expect(
+                        card.locator('a[href="https://www.example.com"]')
+                    ).to_be_visible()
+                    expect(
+                        card.locator('a[href="https://ble.ir/unlabelled_demo"]')
+                    ).to_have_count(0)
+                    card.locator("summary").click()
+                    card.screenshot(path=str(out / f"ad-contact-card-{width}.png"))
                     expect(
                         page.locator('a[href="https://ble.ir/satno_demo_member"]')
                     ).to_be_visible()
@@ -251,7 +283,12 @@ def main():
                     chat_name="منبع نمایشی جداگانه",
                     sender_name="تست محلی",
                     sender_id=str(7000 + i),
-                    text=text,
+                    text=text
+                    + (
+                        "\nتماس: ۰۹۱۲۳۴۵۶۷۸۹\nواتساپ https://wa.me/989123456789\nبله: https://ble.ir/ad_demo_contact\nایمیل: sales@example.com\nوبسایت www.example.com\nشناسه @unlabelled_demo"
+                        if i == 0
+                        else ""
+                    ),
                 )
             )
         save_contact(Contact("7000", "فرستنده نمایشی", "satno_demo_member"))

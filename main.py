@@ -1,3 +1,4 @@
+from ad_contacts import extract_ad_contacts
 from sender_contacts import enrich_messages
 from ui_theme import staff_document
 import os
@@ -439,6 +440,8 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
             except Exception: r[k]=[]
         r["sent_at_display"] = format_tehran_jalali(r.get("sent_at") or r.get("created_at"))
         r["sender_clickable"] = bool(r.get("sender_link"))
+        r["sender_contact_role"] = "publisher"
+        r["ad_contacts"] = extract_ad_contacts(r.get("text"))
     return rows
 
 @app.get("/api/sources")
@@ -589,10 +592,23 @@ async function sendLead(id,btn){
 function senderHtml(r){
  const label=escapeHtml(r.sender_username||r.sender_name||r.sender_id||'-');
  if(r.sender_link && /^https:\/\/ble\.ir\/[A-Za-z0-9_.-]+\/?$/.test(r.sender_link)){
-   return '<a class="sender-contact" href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">ارتباط با فرستنده در بله: '+label+'</a>';
+   return '<a class="sender-contact" href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">پروفایل منتشرکننده پیام: '+label+'</a>';
  }
  const id=r.sender_id?' • ID: '+escapeHtml(r.sender_id):'';
- return label+id+' <span class="tag">نام کاربری عمومی دریافت نشده</span>';
+ return 'منتشرکننده: '+label+id+' <span class="tag">نام کاربری منتشرکننده دریافت نشده</span>';
+}
+function adContactsHtml(r){
+ const contacts=Array.isArray(r.ad_contacts)?r.ad_contacts:[];
+ if(!contacts.length)return '';
+ const labels={phone:'تلفن درج‌شده',whatsapp:'واتس‌اپ',bale:'بله',email:'ایمیل',website:'وب‌سایت',whatsapp_group:'گروه واتس‌اپ',username:'شناسه؛ شبکه نامشخص',needs_review:'پیوند نیازمند بررسی'};
+ function item(c){
+   const content='<span class="contact-kind">'+escapeHtml(labels[c.kind]||'اطلاعات تماس')+'</span><bdi class="contact-value" dir="ltr">'+escapeHtml(c.value||'')+'</bdi>';
+   const href=typeof c.href==='string'?c.href:'';
+   if(/^(https:\/\/|tel:\+|mailto:)/.test(href))return '<a class="ad-contact" href="'+escapeHtml(href)+'"'+(href.startsWith('https://')?' target="_blank" rel="noopener noreferrer"':'')+'>'+content+'</a>';
+   return '<span class="ad-contact contact-review">'+content+'</span>';
+ }
+ const extra=contacts.length>3?'<details class="more-contacts"><summary>اطلاعات تماس بیشتر ('+(contacts.length-3)+')</summary><div class="ad-contact-grid">'+contacts.slice(3).map(item).join('')+'</div></details>':'';
+ return '<section class="ad-contacts" aria-label="اطلاعات تماس داخل آگهی"><strong>اطلاعات تماس داخل آگهی</strong><p class="contact-note">از متن پیام؛ هویت مخاطب تأیید نشده است.</p><div class="ad-contact-grid">'+contacts.slice(0,3).map(item).join('')+'</div>'+extra+'</section>';
 }
 let dateTouched={from:false,to:false};
 function params(){
@@ -619,7 +635,7 @@ async function load(){
    '<div class="metric"><div class="label">منابع فعال</div><div class="value">'+s.active_sources+'</div><div class="foot">کانال/گروه تحت پایش</div></div>'+
    '<div class="metric"><div class="label">History خوانده‌شده</div><div class="value">'+s.history_scanned+'</div><div class="foot">رکورد بررسی‌شده</div></div>'+
    '<div class="metric"><div class="label">آخرین Sync</div><div class="value '+((ls&&ls.status==='ok')?'kpi-good':'kpi-warn')+'">'+(ls?(ls.status||'—'):'—')+'</div><div class="foot">'+(ls?(ls.finished_at||ls.started_at||''):'هنوز ثبت نشده')+'</div></div>';
-   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div><div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی سرنخ</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div>'+adContactsHtml(r)+'<div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی سرنخ</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');dateTouched={from:false,to:false};document.getElementById('cat').value='';load();}

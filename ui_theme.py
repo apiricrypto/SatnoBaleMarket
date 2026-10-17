@@ -308,6 +308,11 @@ input[type=checkbox]{width:20px!important;height:20px!important;min-height:0!imp
 .staff-brand img{display:block;width:74px;height:auto;max-width:100%;object-fit:contain}
 @media(max-width:1199px){.staff-brand{flex-direction:row;justify-content:center;gap:12px}.staff-brand img{width:46px}.staff-brand small{display:block!important;margin:0!important}}
 .sender-contact{display:inline-flex;align-items:center;min-height:44px;padding:5px 9px;border-radius:9px;background:var(--satno-primary-soft);line-height:1.7;overflow-wrap:anywhere}
+.ad-contacts{margin:8px 11px;padding:12px;border:1px solid #bce4dd;border-radius:11px;background:#f2fbf8;min-width:0}
+.ad-contacts>strong{font-size:13px;color:#075d4b}.contact-note{font-size:11px;line-height:1.8;color:#52675e;margin:5px 0 9px}
+.ad-contact-grid{display:grid;gap:7px;min-width:0}.ad-contact{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;min-height:44px;padding:8px 9px;border:1px solid #cce5de;border-radius:8px;background:white;font-size:12px;min-width:0}
+.contact-kind{font-weight:700}.contact-value{overflow-wrap:anywhere;min-width:0;max-width:100%;font-variant-numeric:tabular-nums}
+.contact-review{color:#61543e;background:#fffaf0;border-color:#e6d9b9}.more-contacts summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:12px;color:#315b4f}.more-contacts[open] summary{margin-bottom:5px}
 /* Final pack: shared role-aware shell and stable four-column market board. */
 .staff-brand{font-size:28px;font-weight:850;letter-spacing:2px;color:var(--satno-primary);padding:12px;text-align:center;border-bottom:1px solid var(--satno-line);margin-bottom:12px}
 .staff-brand small{display:block;font-size:12px;letter-spacing:0;color:var(--satno-muted)}
