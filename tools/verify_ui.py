@@ -112,6 +112,40 @@ def check_layout(base, password, changed_password, out, chromium):
                     expect(
                         page.locator('a[href="https://ble.ir/satno_demo_member"]')
                     ).to_be_visible()
+                if path == "/review":
+                    messages = page.request.get(base + "/api/messages?limit=200").json()
+                    message = next(m for m in messages if any(
+                        c["kind"] == "phone" and c["value"] == "09123456789"
+                        for c in m.get("ad_contacts", [])
+                    ))
+                    page.goto(base + "/review?message_id=" + str(message["id"]))
+                    page.wait_for_load_state("networkidle")
+                    card = page.locator('.result-card[data-id="' + str(message["id"]) + '"]')
+                    expect(card.locator('.meta')).to_contain_text("پروفایل منتشرکننده پیام")
+                    expect(card.locator('a[href="https://ble.ir/ad_demo_contact"]')).to_be_visible()
+                    contact = card.get_by_label("تماس اصلی CRM (قابل اصلاح)")
+                    expect(contact).to_have_value("09123456789")
+                    if width == 375:
+                        unsafe = '"><svg data-injected-contact onload="window.contactInjected=true">'
+                        contact.fill(unsafe)
+                        card.get_by_role("button", name="ثبت بررسی", exact=True).click()
+                        expect(card.locator('.result')).to_contain_text("ثبت شد")
+                        page.reload()
+                        expect(card.locator('.contact')).to_have_value(unsafe)
+                        expect(page.locator('[data-injected-contact]')).to_have_count(0)
+                        contact.fill("09123456789")
+                    card.get_by_role("button", name="قرار دادن در صف CRM", exact=True).click()
+                    expect(card.locator('.result')).to_contain_text("در صف CRM #")
+                if path == "/crm/outbox":
+                    expect(page.locator('a[href="tel:+989123456789"]').first).to_be_visible()
+                    expect(page.locator('a[href="https://ble.ir/ad_demo_contact"]')).to_be_visible()
+                    expect(page.locator('.reviewed-contact')).to_contain_text("09123456789")
+                    snapshot = page.request.get(base + "/api/crm/outbox").json()
+                    assert len(snapshot) == 1, "Requeue must preserve the outbox row"
+                    readiness = page.request.get(base + "/api/crm/readiness").json()
+                    assert not readiness["live_delivery_enabled"]
+                    expect(page.get_by_role("button", name="اتصال زنده غیرفعال", exact=True)).to_be_disabled()
+                    assert page.request.post(base + "/api/crm/outbox/" + str(snapshot[0]["id"]) + "/send").json()["status"] == "queued"
                 assert page.locator('nav a[href="/profile/password"]').count() == 1
                 assert page.locator('nav img[src="/assets/satno-logo.jpg"]').evaluate(
                     "img => img.complete && img.naturalWidth === 1280"

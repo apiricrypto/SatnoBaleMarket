@@ -172,3 +172,11 @@ def extract_ad_contacts(text):
         "needs_review": 7,
     }
     return sorted(contacts, key=lambda contact: rank.get(contact["kind"], 9))
+
+
+def extract_reviewed_contacts(text):
+    """Parse reviewer-entered details without claiming they came from the ad."""
+    contacts = extract_ad_contacts("تماس: " + str(text or ""))
+    for contact in contacts:
+        contact["origin"] = "reviewer_input"
+    return contacts

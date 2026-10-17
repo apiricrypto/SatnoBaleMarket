@@ -88,6 +88,34 @@ class MockCRMReceiverTests(unittest.TestCase):
         self.assertEqual(row["last_http_status"], 201)
         self.assertTrue(row["crm_request_id"])
 
+    def test_ad_contacts_reach_loopback_receiver_with_valid_receipt(self):
+        import io
+        captured = []
+        class CaptureHandler(mock_receiver.Handler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers['Content-Length']))
+                captured.append(json.loads(body.decode('utf-8')))
+                self.rfile = io.BytesIO(body)
+                return super().do_POST()
+        self.server.RequestHandlerClass = CaptureHandler
+        message_id = self._seed_selected()
+        with db.connect() as con:
+            con.execute('UPDATE messages SET text=? WHERE id=?', (
+                'تماس 09123456789 sales@example.com https://ble.ir/ad_contact https://wa.me/989123456789 www.example.com',
+                message_id,
+            ))
+        queued = queue_lead(message_id, 'tester')
+        result = send_outbox_item(queued['id'])
+        self.assertEqual(result['status'], 'sent')
+        self.assertEqual(len(captured), 1)
+        received = captured[0]
+        self.assertEqual(received['contact_phone'], '09123456789')
+        self.assertEqual(received['contact_email'], 'sales@example.com')
+        self.assertNotIn('contact_name', received)
+        kinds = {c['kind'] for c in received['raw_payload']['extracted']['ad_contacts']}
+        self.assertEqual(kinds, {'phone', 'email', 'bale', 'whatsapp', 'website'})
+        self.assertEqual(received['raw_payload']['message']['sender_contact_role'], 'publisher')
+
     def test_mock_receiver_duplicate_returns_same_identity(self):
         message_id = self._seed_selected()
         outbox = queue_lead(message_id, "tester")
