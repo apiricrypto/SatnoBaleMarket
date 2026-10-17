@@ -76,6 +76,10 @@ def check_layout(base, password, changed_password, out, chromium):
             ]:
                 page.goto(base + path)
                 page.wait_for_load_state("networkidle")
+                if path == "/":
+                    expect(
+                        page.locator('a[href="https://ble.ir/satno_demo_member"]')
+                    ).to_be_visible()
                 assert page.locator('nav a[href="/profile/password"]').count() == 1
                 assert page.locator('nav img[src="/assets/satno-logo.jpg"]').evaluate(
                     "img => img.complete && img.naturalWidth === 1280"
@@ -229,6 +233,7 @@ def main():
         os.environ["SESSION_COOKIE_SECURE"] = "0"
         from auth import create_user
         from main import save_message, MessageIn
+        from sender_contacts import Contact, save_contact
 
         for role in ("admin", "sales", "viewer"):
             create_user("demo-" + role, password, role, "کاربر آزمایشی " + role)
@@ -245,9 +250,11 @@ def main():
                     external_id="demo-" + str(i),
                     chat_name="منبع نمایشی جداگانه",
                     sender_name="تست محلی",
+                    sender_id=str(7000 + i),
                     text=text,
                 )
             )
+        save_contact(Contact("7000", "فرستنده نمایشی", "satno_demo_member"))
         with (out / "server.log").open("w") as log:
             process = subprocess.Popen(
                 [

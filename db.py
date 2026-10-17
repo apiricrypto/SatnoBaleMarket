@@ -187,6 +187,7 @@ def init_db():
           last_error TEXT,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
+        _ensure_column(con, "sender_directory", "lookup_version", "INTEGER NOT NULL DEFAULT 0")
         con.execute("CREATE INDEX IF NOT EXISTS idx_sender_directory_username ON sender_directory(sender_username)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS lead_reviews (

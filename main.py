@@ -1,3 +1,4 @@
+from sender_contacts import enrich_messages
 from ui_theme import staff_document
 import os
 from fastapi import FastAPI, Query, Request, Response, HTTPException, Depends
@@ -397,10 +398,6 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     args=[]
     if category:
         sql += " AND category=?"; args.append(category)
-    if sender_id:
-        sid = sender_id.strip().lstrip("@")
-        sql += " AND (sender_id LIKE ? OR LOWER(COALESCE(sender_username,'')) LIKE ? OR LOWER(COALESCE(sender_name,'')) LIKE ?)"
-        like_sid=f"%{sid}%"; args += [like_sid, like_sid.lower(), like_sid.lower()]
     normalized_from = normalize_datetime_filter(date_from)
     normalized_to = normalize_datetime_filter(date_to, end=True)
     # Historical Bale rows may contain legacy numeric/non-ISO timestamps.
@@ -408,6 +405,11 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     sql += " ORDER BY id DESC"
     with connect() as con:
         rows=[dict(r) for r in con.execute(sql,args).fetchall()]
+    enrich_messages(rows)
+    if sender_id:
+        key = sender_id.strip().lstrip('@').lower()
+        fields = ('sender_username',) if sender_id.strip().startswith('@') else ('sender_id', 'sender_username', 'sender_name')
+        rows = [row for row in rows if any(key in str(row.get(field) or '').lower() for field in fields)]
     if normalized_from or normalized_to:
         from_dt = parse_message_datetime(normalized_from) if normalized_from else None
         to_dt = parse_message_datetime(normalized_to) if normalized_to else None
@@ -587,10 +589,10 @@ async function sendLead(id,btn){
 function senderHtml(r){
  const label=escapeHtml(r.sender_username||r.sender_name||r.sender_id||'-');
  if(r.sender_link && /^https:\/\/ble\.ir\/[A-Za-z0-9_.-]+\/?$/.test(r.sender_link)){
-   return '<a href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">بازکردن در بله: '+label+'</a>';
+   return '<a class="sender-contact" href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">ارتباط با فرستنده در بله: '+label+'</a>';
  }
  const id=r.sender_id?' • ID: '+escapeHtml(r.sender_id):'';
- return label+id+' <span class="tag">لینک عمومی بله موجود نیست</span>';
+ return label+id+' <span class="tag">نام کاربری عمومی دریافت نشده</span>';
 }
 let dateTouched={from:false,to:false};
 function params(){

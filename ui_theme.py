@@ -307,6 +307,7 @@ input[type=checkbox]{width:20px!important;height:20px!important;min-height:0!imp
 .staff-brand{display:flex;flex-direction:column;align-items:center;gap:8px}
 .staff-brand img{display:block;width:74px;height:auto;max-width:100%;object-fit:contain}
 @media(max-width:1199px){.staff-brand{flex-direction:row;justify-content:center;gap:12px}.staff-brand img{width:46px}.staff-brand small{display:block!important;margin:0!important}}
+.sender-contact{display:inline-flex;align-items:center;min-height:44px;padding:5px 9px;border-radius:9px;background:var(--satno-primary-soft);line-height:1.7;overflow-wrap:anywhere}
 /* Final pack: shared role-aware shell and stable four-column market board. */
 .staff-brand{font-size:28px;font-weight:850;letter-spacing:2px;color:var(--satno-primary);padding:12px;text-align:center;border-bottom:1px solid var(--satno-line);margin-bottom:12px}
 .staff-brand small{display:block;font-size:12px;letter-spacing:0;color:var(--satno-muted)}

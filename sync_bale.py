@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from main import MessageIn, save_message
 from db import connect, init_db
+from sender_contacts import cached_contact, resolve_contact, save_contact
 from sync_state import get_checkpoint, save_checkpoint
 from time_utils import canonical_sent_at
 from sync_guard import SyncFileLock, SyncAlreadyRunning
@@ -30,37 +31,6 @@ KEYWORDS = [
 MAX_CHATS = int(os.getenv("BALE_MAX_CHATS", "500"))
 MESSAGES_PER_CHAT = int(os.getenv("BALE_MESSAGES_PER_CHAT", "200"))
 OVERLAP_AFTER_CHECKPOINT = int(os.getenv("BALE_SYNC_OVERLAP_MESSAGES", "50"))
-
-def load_cached_sender(sender_id):
-    if not sender_id:
-        return None
-    with connect() as con:
-        row = con.execute(
-            "SELECT sender_name,sender_username,sender_link FROM sender_directory WHERE sender_id=?",
-            (sender_id,),
-        ).fetchone()
-    if not row:
-        return None
-    return (row["sender_name"] or sender_id, row["sender_username"], row["sender_link"])
-
-def save_resolved_sender(sender_id, name, username, link, error=None):
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    with connect() as con:
-        con.execute(
-            """
-            INSERT INTO sender_directory(sender_id,sender_name,sender_username,sender_link,resolved_at,last_error,updated_at)
-            VALUES(?,?,?,?,?,?,?)
-            ON CONFLICT(sender_id) DO UPDATE SET
-              sender_name=excluded.sender_name,
-              sender_username=excluded.sender_username,
-              sender_link=excluded.sender_link,
-              resolved_at=excluded.resolved_at,
-              last_error=excluded.last_error,
-              updated_at=excluded.updated_at
-            """,
-            (sender_id, name, username, link, now if not error else None, error, now),
-        )
 
 
 def classify_sync_health(dialogs_seen, registry_count, selected_count):
@@ -165,6 +135,7 @@ async def _sync_once(run_id):
     total_saved = 0
     total_duplicates = 0
     sender_cache = {}
+    sender_lookups = 0
     dialogs_seen = 0
     chats_scanned = 0
     registry_count = 0
@@ -271,21 +242,17 @@ async def _sync_once(run_id):
                 sender_link = None
                 if sender_id:
                     if sender_id not in sender_cache:
-                        cached = load_cached_sender(sender_id)
-                        if cached:
-                            sender_cache[sender_id] = cached
-                        else:
-                            try:
-                                entity = await client.get_entity(sender_id)
-                                username = str(getattr(entity, "username", "") or "").lstrip("@")
-                                resolved_name = str(getattr(entity, "title", "") or "") or sender_id
-                                link = f"https://ble.ir/{username}" if username else None
-                                sender_cache[sender_id] = (resolved_name, username or None, link)
-                                save_resolved_sender(sender_id, resolved_name, username or None, link)
-                            except Exception as exc:
-                                sender_cache[sender_id] = (sender_id, None, None)
-                                save_resolved_sender(sender_id, sender_id, None, None, type(exc).__name__)
-                    sender_name, sender_username, sender_link = sender_cache[sender_id]
+                        contact = cached_contact(sender_id)
+                        if contact is None and sender_lookups < 10:
+                            sender_lookups += 1
+                            contact = await resolve_contact(client, sender_id)
+                            save_contact(contact)
+                        sender_cache[sender_id] = contact
+                    contact = sender_cache[sender_id]
+                    if contact:
+                        sender_name = contact.name or sender_id
+                        sender_username = contact.username if contact.link else None
+                        sender_link = contact.link
 
                 data = MessageIn(
                     external_id=rid,

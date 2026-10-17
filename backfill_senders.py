@@ -1,60 +1,102 @@
+"""Read-only contact probe by default. --apply explicitly updates sender cache only.
+
+An explicit database and group prevent accidental use of an inherited test DB.
+Never runs Sync, sends messages, or rewrites historical message records.
+"""
+
+import argparse
 import asyncio
 import os
+from pathlib import Path
+import sqlite3
 
 from dotenv import load_dotenv
 from bale import BaleClient
+import db
+from sender_contacts import public_username, resolve_contact, save_contact
 
-from db import connect, init_db
 
-load_dotenv(".env.local")
+def selected_senders(database, group, limit):
+    con = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+    try:
+        rows = con.execute(
+            "SELECT sender_id FROM messages WHERE chat_name=? AND sender_id IS NOT NULL ORDER BY id DESC LIMIT 500",
+            (group,),
+        ).fetchall()
+    finally:
+        con.close()
+    return list(
+        dict.fromkeys(
+            str(r[0])
+            for r in rows
+            if str(r[0]).isascii() and str(r[0]).isdecimal() and int(r[0]) > 0
+        )
+    )[:limit]
 
-async def main():
-    token=os.getenv("BALE_TOKEN")
+
+async def probe(args):
+    database = Path(args.database).resolve(strict=True)
+    ids = selected_senders(database, args.group, args.limit)
+    print("DATABASE:", database)
+    print("MODE:", "APPLY_CACHE" if args.apply else "READ_ONLY")
+    print("SAMPLES:", len(ids))
+    if not ids:
+        raise RuntimeError("No sender IDs in the exact selected group")
+    load_dotenv(Path.cwd() / ".env.local")
+    token = (os.getenv("BALE_TOKEN") or "").strip()
     if not token:
-        raise SystemExit("BALE_TOKEN پیدا نشد.")
-    init_db()
-    with connect() as con:
-        rows=con.execute("""
-            SELECT DISTINCT sender_id
-            FROM messages
-            WHERE sender_id IS NOT NULL AND sender_id != ''
-              AND (sender_username IS NULL OR sender_username = '')
-        """).fetchall()
-    print("Senders to resolve:", len(rows))
-    resolved=0
+        raise RuntimeError(
+            "BALE_TOKEN missing; configure on this machine, never paste into chat"
+        )
+    contacts = []
     async with BaleClient(token) as client:
-        for row in rows:
-            sender_id=str(row[0])
-            try:
-                entity=await client.get_entity(sender_id)
-                username=str(getattr(entity,"username","") or "").lstrip("@")
-                name=str(getattr(entity,"title","") or "") or sender_id
-                link=f"https://ble.ir/{username}" if username else None
-                from datetime import datetime, timezone
-                now=datetime.now(timezone.utc).isoformat()
-                with connect() as con:
-                    con.execute(
-                        "UPDATE messages SET sender_name=?,sender_username=?,sender_link=? WHERE sender_id=?",
-                        (name,username or None,link,sender_id),
+        for index, sid in enumerate(ids, 1):
+            contact = await resolve_contact(client, sid)
+            contacts.append(contact)
+            print(
+                "SAMPLE",
+                index,
+                "STATUS:",
+                contact.error or "public_username",
+                "SOURCE:",
+                contact.source or "-",
+            )
+            if contact.link:
+                print("LINK:", contact.link)
+                if args.expected_username:
+                    print(
+                        "MATCHES_EXPECTED:", contact.username == args.expected_username
                     )
-                    con.execute(
-                        """
-                        INSERT INTO sender_directory(sender_id,sender_name,sender_username,sender_link,resolved_at,last_error,updated_at)
-                        VALUES(?,?,?,?,?,NULL,?)
-                        ON CONFLICT(sender_id) DO UPDATE SET
-                          sender_name=excluded.sender_name,
-                          sender_username=excluded.sender_username,
-                          sender_link=excluded.sender_link,
-                          resolved_at=excluded.resolved_at,
-                          last_error=NULL,
-                          updated_at=excluded.updated_at
-                        """,
-                        (sender_id,name,username or None,link,now,now),
-                    )
-                resolved += 1
-            except Exception as exc:
-                print("SKIP:", sender_id, type(exc).__name__)
-    print("Resolved:", resolved)
+    if args.apply:
+        # Explicit opt-in: additive schema migration and cache update only.
+        db.DB_PATH = str(database)
+        db.init_db()
+        for contact in contacts:
+            save_contact(contact)
+        print("CACHE_UPDATED:", len(contacts))
+    else:
+        print("NO_DATABASE_WRITES")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database", required=True)
+    parser.add_argument("--group", required=True, help="Exact stored group title")
+    parser.add_argument("--limit", type=int, choices=range(1, 11), default=3)
+    parser.add_argument("--expected-username", type=public_username)
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write cache after approved rollout; default is read-only",
+    )
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(asyncio.wait_for(probe(parse_args()), timeout=120))
+    except KeyboardInterrupt:
+        raise SystemExit("PROBE_CANCELLED")
+    except Exception as error:
+        print("PROBE_FAILED:", type(error).__name__)
+        raise SystemExit(1)
