@@ -164,6 +164,8 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
             con.execute("UPDATE staff_users SET " + ",".join(updates) + " WHERE id=?", args)
             if role is not None or is_active is not None or password is not None:
                 _revoke_user_sessions(con, user_id)
+            if password is not None:
+                _resolve_password_request(con, user_id)
 
         row = con.execute(
             "SELECT id,username,role,display_name,is_active,created_at FROM staff_users WHERE id=?",
@@ -193,4 +195,57 @@ def change_own_password(user_id, current_password, new_password):
             (hash_password(new_password), user_id),
         )
         _revoke_user_sessions(con, user_id)
+        _resolve_password_request(con, user_id)
     return True
+
+
+def _resolve_password_request(con, user_id):
+    con.execute(
+        "UPDATE password_reset_requests SET resolved_at=? WHERE user_id=? AND resolved_at IS NULL",
+        (datetime.now(timezone.utc).isoformat(), user_id),
+    )
+
+
+def request_password_reset(username):
+    """One pending request per active account; never return account existence."""
+    init_db()
+    now = datetime.now(timezone.utc)
+    with connect() as con:
+        con.execute(
+            """INSERT INTO password_reset_requests(user_id,requested_at)
+            SELECT id,? FROM staff_users WHERE username=? AND is_active=1
+            ON CONFLICT(user_id) DO UPDATE SET requested_at=excluded.requested_at,resolved_at=NULL
+            WHERE password_reset_requests.resolved_at IS NOT NULL
+              AND password_reset_requests.requested_at<?""",
+            (now.isoformat(), username.strip().lower(), (now - timedelta(minutes=15)).isoformat()),
+        )
+
+
+def list_password_reset_requests():
+    init_db()
+    with connect() as con:
+        rows = con.execute(
+            """SELECT r.user_id,u.username,u.display_name,r.requested_at
+            FROM password_reset_requests r JOIN staff_users u ON u.id=r.user_id
+            WHERE r.resolved_at IS NULL AND u.is_active=1 ORDER BY r.requested_at"""
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def recover_admin_password(username, new_password):
+    """Server operator recovery only. Never expose through an HTTP route."""
+    if len(new_password) < 12:
+        raise ValueError("new password must be at least 12 characters")
+    init_db()
+    with connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT id FROM staff_users WHERE username=? AND role='admin' AND is_active=1",
+            (username.strip().lower(),),
+        ).fetchone()
+        if not row:
+            raise ValueError("active administrator not found")
+        con.execute("UPDATE staff_users SET password_hash=? WHERE id=?",
+                    (hash_password(new_password), row['id']))
+        _revoke_user_sessions(con, row['id'])
+        _resolve_password_request(con, row['id'])
