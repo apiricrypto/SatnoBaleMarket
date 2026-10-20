@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+from staff_email import normalize_email
 from datetime import datetime, timedelta, timezone
 from db import connect, init_db
 
@@ -20,13 +21,16 @@ def verify_password(password, encoded):
     except Exception:
         return False
 
-def create_user(username,password,role="viewer",display_name=None):
+def create_user(username,password,role="viewer",display_name=None,email=None):
     if role not in {"admin","sales","viewer"}: raise ValueError("invalid role")
     if len(password)<10: raise ValueError("password must be at least 10 characters")
+    email = normalize_email(email)
     init_db()
     with connect() as con:
-        con.execute("INSERT INTO staff_users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
-                    (username.strip().lower(),hash_password(password),role,display_name))
+        if email and con.execute("SELECT 1 FROM staff_users WHERE email=? COLLATE NOCASE", (email,)).fetchone():
+            raise ValueError('email is already assigned')
+        con.execute("INSERT INTO staff_users(username,password_hash,role,display_name,email) VALUES(?,?,?,?,?)",
+                    (username.strip().lower(),hash_password(password),role,display_name,email))
 
 
 SESSION_HOURS = 8
@@ -42,6 +46,28 @@ def authenticate_user(username, password):
     if not row or not row["is_active"] or not verify_password(password, row["password_hash"]):
         return None
     return {k: row[k] for k in ("id","username","role","display_name","is_active")}
+
+def authenticate_and_create_session(username, password):
+    """Recheck credentials under the session-issuance lock against concurrent resets."""
+    init_db()
+    with connect() as con:
+        snapshot = con.execute("SELECT id,password_hash,is_active FROM staff_users WHERE username=?",
+                               (username.strip().lower(),)).fetchone()
+    if not snapshot or not snapshot['is_active'] or not verify_password(password, snapshot['password_hash']):
+        return None
+    token = secrets.token_urlsafe(32)
+    with connect() as con:
+        con.execute('BEGIN IMMEDIATE')
+        current = con.execute('SELECT id,username,role,display_name,is_active,password_hash FROM staff_users WHERE id=?',
+                              (snapshot['id'],)).fetchone()
+        if not current or not current['is_active'] or not hmac.compare_digest(current['password_hash'], snapshot['password_hash']):
+            return None
+        con.execute('INSERT INTO staff_sessions(user_id,token_hash,expires_at) VALUES(?,?,?)',
+                    (current['id'], _hash_session_token(token),
+                     (datetime.now(timezone.utc)+timedelta(hours=SESSION_HOURS)).isoformat()))
+        user = {key:current[key] for key in ('id','username','role','display_name','is_active')}
+    return user, token
+
 
 def _hash_session_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -108,7 +134,7 @@ def list_users():
     init_db()
     with connect() as con:
         rows = con.execute(
-            "SELECT id,username,role,display_name,is_active,created_at FROM staff_users ORDER BY id"
+            "SELECT id,username,role,display_name,is_active,created_at,email FROM staff_users ORDER BY id"
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -124,7 +150,14 @@ def _revoke_user_sessions(con, user_id):
         (revoked_at, user_id),
     )
 
-def update_user(user_id, role=None, display_name=None, is_active=None, password=None):
+def _revoke_reset_tokens(con, user_id):
+    con.execute("UPDATE staff_password_resets SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                (datetime.now(timezone.utc).isoformat(), user_id))
+
+
+_EMAIL_UNSET = object()
+
+def update_user(user_id, role=None, display_name=None, is_active=None, password=None, email=_EMAIL_UNSET):
     if role is not None and role not in {"admin","sales","viewer"}:
         raise ValueError("invalid role")
     if is_active is not None and not isinstance(is_active, bool):
@@ -132,10 +165,12 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
     if password is not None and len(password) < 10:
         raise ValueError("password must be at least 10 characters")
 
+    if email is not _EMAIL_UNSET:
+        email = normalize_email(email)
     init_db()
     with connect() as con:
         current = con.execute(
-            "SELECT id,username,role,display_name,is_active FROM staff_users WHERE id=?",
+            "SELECT id,username,role,display_name,is_active,email FROM staff_users WHERE id=?",
             (user_id,),
         ).fetchone()
         if not current:
@@ -150,6 +185,12 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
 
         updates=[]
         args=[]
+        if email is not _EMAIL_UNSET:
+            if email and con.execute("SELECT 1 FROM staff_users WHERE email=? COLLATE NOCASE AND id<>?", (email, user_id)).fetchone():
+                raise ValueError('email is already assigned')
+            updates.append("email=?"); args.append(email)
+            if email != current['email']:
+                _revoke_reset_tokens(con, user_id)
         if role is not None:
             updates.append("role=?"); args.append(role)
         if display_name is not None:
@@ -164,9 +205,10 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
             con.execute("UPDATE staff_users SET " + ",".join(updates) + " WHERE id=?", args)
             if role is not None or is_active is not None or password is not None:
                 _revoke_user_sessions(con, user_id)
+                _revoke_reset_tokens(con, user_id)
 
         row = con.execute(
-            "SELECT id,username,role,display_name,is_active,created_at FROM staff_users WHERE id=?",
+            "SELECT id,username,role,display_name,is_active,created_at,email FROM staff_users WHERE id=?",
             (user_id,),
         ).fetchone()
     return dict(row)
@@ -182,6 +224,7 @@ def change_own_password(user_id, current_password, new_password):
         raise ValueError("new password must differ from current password")
     init_db()
     with connect() as con:
+        con.execute('BEGIN IMMEDIATE')
         row = con.execute(
             "SELECT password_hash,is_active FROM staff_users WHERE id=?",
             (user_id,),
@@ -193,4 +236,5 @@ def change_own_password(user_id, current_password, new_password):
             (hash_password(new_password), user_id),
         )
         _revoke_user_sessions(con, user_id)
+        _revoke_reset_tokens(con, user_id)
     return True

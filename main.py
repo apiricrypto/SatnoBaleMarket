@@ -13,14 +13,16 @@ from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
-from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user, change_own_password
+from auth import authenticate_and_create_session, authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user, change_own_password
 from crm_connector import queue_lead
 from operations_routes import router as operations_router
 from ui_theme import SATNO_UI_CSS
+from password_reset_routes import router as password_reset_router
 import json
 
 app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.2")
 app.include_router(operations_router)
+app.include_router(password_reset_router)
 
 @app.get("/assets/satno-ui.css")
 def satno_ui_css():
@@ -53,12 +55,14 @@ require_users_manage = require_permission("users:manage")
 require_lead_send = require_permission("lead:send")
 
 class StaffUserCreate(BaseModel):
+    email: Optional[str] = None
     username: str
     password: str
     role: str = "viewer"
     display_name: Optional[str] = None
 
 class StaffUserUpdate(BaseModel):
+    email: Optional[str] = None
     role: Optional[str] = None
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
@@ -223,7 +227,7 @@ button[type=submit]{height:54px;margin-top:12px}.error{margin:8px 0;min-height:2
 <label for="username">نام کاربری</label><div class="field"><input id="username" name="username" autocomplete="username" required placeholder="نام کاربری" maxlength="100"></div>
 <label for="password">رمز عبور</label><div class="field"><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="رمز عبور"><button id="togglePassword" type="button" class="toggle" aria-label="نمایش رمز عبور" aria-pressed="false">نمایش</button></div>
 <p class="error" id="err" role="alert" aria-live="polite"></p>
-<button id="loginBtn" type="submit">ورود</button>
+<button id="loginBtn" type="submit">ورود</button><p><a href="/forgot-password">رمز عبور را فراموش کرده‌اید؟</a></p>
 <p class="help">برای بازیابی رمز عبور با مدیر سامانه تماس بگیرید.</p>
 <div class="footer">گروه ساتنو · بله مارکت ۰.۵.۲</div>
 </form></section></main>
@@ -249,10 +253,10 @@ form.addEventListener('submit',async e=>{
 
 @app.post("/api/auth/login")
 def login(payload: LoginIn, response: Response):
-    user = authenticate_user(payload.username, payload.password)
-    if not user:
+    authenticated = authenticate_and_create_session(payload.username, payload.password)
+    if not authenticated:
         raise HTTPException(status_code=401, detail="invalid credentials")
-    token = create_session(user["id"])
+    user, token = authenticated
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
@@ -340,18 +344,18 @@ table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;bor
 .err{color:#b42318}a{color:#0866c6;text-decoration:none}
 </style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><h2>مدیریت کاربران پرسنل</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users" aria-current="page">کاربران</a></div>
 <form id="create" class="card"><input id="username" placeholder="نام کاربری" required>
-<input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
+<input id="email" type="email" placeholder="ایمیل بازیابی" aria-label="ایمیل بازیابی کاربر جدید"><input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
 <select id="role"><option value="viewer">viewer</option><option value="sales">sales</option><option value="admin">admin</option></select>
 <button type="submit">ایجاد کاربر</button><span id="msg"></span></form>
-<div class="card"><table><thead><tr><th>کاربر</th><th>نام</th><th>نقش</th><th>فعال</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="card"><table><thead><tr><th>کاربر</th><th>نام</th><th>ایمیل بازیابی</th><th>نقش</th><th>فعال</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div>
 </div><script>
-function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;');}
 async function load(){
  const r=await fetch('/api/admin/users'); if(!r.ok)return; const users=await r.json();
- rows.innerHTML=users.map(u=>'<tr><td>'+e(u.username)+'</td><td><input id="n'+u.id+'" value="'+e(u.display_name||'')+'"></td><td><select id="r'+u.id+'"><option '+(u.role==='viewer'?'selected':'')+'>viewer</option><option '+(u.role==='sales'?'selected':'')+'>sales</option><option '+(u.role==='admin'?'selected':'')+'>admin</option></select></td><td><input id="a'+u.id+'" type="checkbox" '+(u.is_active?'checked':'')+'></td><td><button onclick="save('+u.id+')">ذخیره</button><button onclick="resetPw('+u.id+')">رمز جدید</button></td></tr>').join('');
+ rows.innerHTML=users.map(u=>'<tr><td>'+e(u.username)+'</td><td><input id="n'+u.id+'" value="'+e(u.display_name||'')+'"></td><td><input type="email" aria-label="ایمیل بازیابی '+e(u.username)+'" id="e'+u.id+'" value="'+e(u.email||'')+'"></td><td><select id="r'+u.id+'"><option '+(u.role==='viewer'?'selected':'')+'>viewer</option><option '+(u.role==='sales'?'selected':'')+'>sales</option><option '+(u.role==='admin'?'selected':'')+'>admin</option></select></td><td><input id="a'+u.id+'" type="checkbox" '+(u.is_active?'checked':'')+'></td><td><button onclick="save('+u.id+')">ذخیره</button><button onclick="resetPw('+u.id+')">رمز جدید</button></td></tr>').join('');
 }
 async function save(id){
- const body={role:document.getElementById('r'+id).value,display_name:document.getElementById('n'+id).value,is_active:document.getElementById('a'+id).checked};
+ const body={email:document.getElementById('e'+id).value.trim()||null,role:document.getElementById('r'+id).value,display_name:document.getElementById('n'+id).value,is_active:document.getElementById('a'+id).checked};
  const r=await fetch('/api/admin/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  if(!r.ok){alert((await r.json()).detail||'خطا');return;} load();
 }
@@ -362,7 +366,7 @@ async function resetPw(id){
 }
 document.getElementById('create').addEventListener('submit',async(ev)=>{
  ev.preventDefault(); msg.textContent='';
- const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,display_name:display_name.value,password:password.value,role:role.value})});
+ const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value.trim()||null,username:username.value,display_name:display_name.value,password:password.value,role:role.value})});
  if(!r.ok){msg.textContent=(await r.json()).detail||'خطا';return;}
  ev.target.reset(); load();
 });
@@ -376,7 +380,7 @@ def admin_list_users(user=Depends(require_users_manage)):
 @app.post("/api/admin/users", status_code=201)
 def admin_create_user(payload: StaffUserCreate, user=Depends(require_users_manage)):
     try:
-        create_user(payload.username, payload.password, payload.role, payload.display_name)
+        create_user(payload.username, payload.password, payload.role, payload.display_name, email=payload.email)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     created = next((u for u in list_users() if u["username"] == payload.username.strip().lower()), None)
@@ -391,6 +395,7 @@ def admin_update_user(user_id: int, payload: StaffUserUpdate, user=Depends(requi
             display_name=payload.display_name,
             is_active=payload.is_active,
             password=payload.password,
+            **({"email": payload.email} if "email" in payload.model_fields_set else {}),
         )
     except ValueError as exc:
         message = str(exc)
@@ -518,7 +523,7 @@ a{color:#0866c6;text-decoration:none}
 <div id="summary" class="card">در حال بارگذاری...</div>
 <div class="card"><table><thead><tr><th>منبع</th><th>نوع</th><th>امتیاز</th><th>فعال</th><th>آخرین مشاهده</th></tr></thead><tbody id="rows"></tbody></table></div>
 </div><script>
-function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;');}
 async function load(){
  const [s,r]=await Promise.all([fetch('/api/sync/status'),fetch('/api/sources')]);
  if(!s.ok||!r.ok){document.getElementById('summary').textContent='خطا در دریافت وضعیت';return;}
