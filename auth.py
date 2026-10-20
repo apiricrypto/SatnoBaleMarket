@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+from staff_email import normalize_email
 from datetime import datetime, timedelta, timezone
 from db import connect, init_db
 
@@ -20,13 +21,16 @@ def verify_password(password, encoded):
     except Exception:
         return False
 
-def create_user(username,password,role="viewer",display_name=None):
+def create_user(username,password,role="viewer",display_name=None,email=None):
     if role not in {"admin","sales","viewer"}: raise ValueError("invalid role")
     if len(password)<10: raise ValueError("password must be at least 10 characters")
+    email = normalize_email(email)
     init_db()
     with connect() as con:
-        con.execute("INSERT INTO staff_users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
-                    (username.strip().lower(),hash_password(password),role,display_name))
+        if email and con.execute("SELECT 1 FROM staff_users WHERE email=? COLLATE NOCASE", (email,)).fetchone():
+            raise ValueError('email is already assigned')
+        con.execute("INSERT INTO staff_users(username,password_hash,role,display_name,email) VALUES(?,?,?,?,?)",
+                    (username.strip().lower(),hash_password(password),role,display_name,email))
 
 
 SESSION_HOURS = 8
@@ -42,6 +46,28 @@ def authenticate_user(username, password):
     if not row or not row["is_active"] or not verify_password(password, row["password_hash"]):
         return None
     return {k: row[k] for k in ("id","username","role","display_name","is_active")}
+
+def authenticate_and_create_session(username, password):
+    """Recheck credentials under the session-issuance lock against concurrent resets."""
+    init_db()
+    with connect() as con:
+        snapshot = con.execute("SELECT id,password_hash,is_active FROM staff_users WHERE username=?",
+                               (username.strip().lower(),)).fetchone()
+    if not snapshot or not snapshot['is_active'] or not verify_password(password, snapshot['password_hash']):
+        return None
+    token = secrets.token_urlsafe(32)
+    with connect() as con:
+        con.execute('BEGIN IMMEDIATE')
+        current = con.execute('SELECT id,username,role,display_name,is_active,password_hash FROM staff_users WHERE id=?',
+                              (snapshot['id'],)).fetchone()
+        if not current or not current['is_active'] or not hmac.compare_digest(current['password_hash'], snapshot['password_hash']):
+            return None
+        con.execute('INSERT INTO staff_sessions(user_id,token_hash,expires_at) VALUES(?,?,?)',
+                    (current['id'], _hash_session_token(token),
+                     (datetime.now(timezone.utc)+timedelta(hours=SESSION_HOURS)).isoformat()))
+        user = {key:current[key] for key in ('id','username','role','display_name','is_active')}
+    return user, token
+
 
 def _hash_session_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -108,7 +134,7 @@ def list_users():
     init_db()
     with connect() as con:
         rows = con.execute(
-            "SELECT id,username,role,display_name,is_active,created_at FROM staff_users ORDER BY id"
+            "SELECT id,username,role,display_name,is_active,created_at,email FROM staff_users ORDER BY id"
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -124,7 +150,14 @@ def _revoke_user_sessions(con, user_id):
         (revoked_at, user_id),
     )
 
-def update_user(user_id, role=None, display_name=None, is_active=None, password=None):
+def _revoke_reset_tokens(con, user_id):
+    con.execute("UPDATE staff_password_resets SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                (datetime.now(timezone.utc).isoformat(), user_id))
+
+
+_EMAIL_UNSET = object()
+
+def update_user(user_id, role=None, display_name=None, is_active=None, password=None, email=_EMAIL_UNSET):
     if role is not None and role not in {"admin","sales","viewer"}:
         raise ValueError("invalid role")
     if is_active is not None and not isinstance(is_active, bool):
@@ -132,10 +165,12 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
     if password is not None and len(password) < 10:
         raise ValueError("password must be at least 10 characters")
 
+    if email is not _EMAIL_UNSET:
+        email = normalize_email(email)
     init_db()
     with connect() as con:
         current = con.execute(
-            "SELECT id,username,role,display_name,is_active FROM staff_users WHERE id=?",
+            "SELECT id,username,role,display_name,is_active,email FROM staff_users WHERE id=?",
             (user_id,),
         ).fetchone()
         if not current:
@@ -150,6 +185,12 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
 
         updates=[]
         args=[]
+        if email is not _EMAIL_UNSET:
+            if email and con.execute("SELECT 1 FROM staff_users WHERE email=? COLLATE NOCASE AND id<>?", (email, user_id)).fetchone():
+                raise ValueError('email is already assigned')
+            updates.append("email=?"); args.append(email)
+            if email != current['email']:
+                _revoke_reset_tokens(con, user_id)
         if role is not None:
             updates.append("role=?"); args.append(role)
         if display_name is not None:
@@ -164,9 +205,92 @@ def update_user(user_id, role=None, display_name=None, is_active=None, password=
             con.execute("UPDATE staff_users SET " + ",".join(updates) + " WHERE id=?", args)
             if role is not None or is_active is not None or password is not None:
                 _revoke_user_sessions(con, user_id)
+                _revoke_reset_tokens(con, user_id)
+            if password is not None:
+                _resolve_password_request(con, user_id)
 
         row = con.execute(
-            "SELECT id,username,role,display_name,is_active,created_at FROM staff_users WHERE id=?",
+            "SELECT id,username,role,display_name,is_active,created_at,email FROM staff_users WHERE id=?",
             (user_id,),
         ).fetchone()
     return dict(row)
+
+
+def change_own_password(user_id, current_password, new_password):
+    """Verify the user's current password and revoke every previous session."""
+    if not current_password:
+        raise ValueError("current password is required")
+    if len(new_password) < 12:
+        raise ValueError("new password must be at least 12 characters")
+    if current_password == new_password:
+        raise ValueError("new password must differ from current password")
+    init_db()
+    with connect() as con:
+        con.execute('BEGIN IMMEDIATE')
+        row = con.execute(
+            "SELECT password_hash,is_active FROM staff_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not row or not row["is_active"] or not verify_password(current_password, row["password_hash"]):
+            raise ValueError("current password is incorrect")
+        con.execute(
+            "UPDATE staff_users SET password_hash=? WHERE id=?",
+            (hash_password(new_password), user_id),
+        )
+        _revoke_user_sessions(con, user_id)
+        _revoke_reset_tokens(con, user_id)
+        _resolve_password_request(con, user_id)
+    return True
+
+
+def _resolve_password_request(con, user_id):
+    con.execute(
+        "UPDATE password_reset_requests SET resolved_at=? WHERE user_id=? AND resolved_at IS NULL",
+        (datetime.now(timezone.utc).isoformat(), user_id),
+    )
+
+
+def request_password_reset(username):
+    """One pending request per active account; never return account existence."""
+    init_db()
+    now = datetime.now(timezone.utc)
+    with connect() as con:
+        con.execute(
+            """INSERT INTO password_reset_requests(user_id,requested_at)
+            SELECT id,? FROM staff_users WHERE username=? AND is_active=1
+            ON CONFLICT(user_id) DO UPDATE SET requested_at=excluded.requested_at,resolved_at=NULL
+            WHERE password_reset_requests.resolved_at IS NOT NULL
+              AND password_reset_requests.requested_at<?""",
+            (now.isoformat(), username.strip().lower(), (now - timedelta(minutes=15)).isoformat()),
+        )
+
+
+def list_password_reset_requests():
+    init_db()
+    with connect() as con:
+        rows = con.execute(
+            """SELECT r.user_id,u.username,u.display_name,r.requested_at
+            FROM password_reset_requests r JOIN staff_users u ON u.id=r.user_id
+            WHERE r.resolved_at IS NULL AND u.is_active=1 ORDER BY r.requested_at"""
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def recover_admin_password(username, new_password):
+    """Server operator recovery only. Never expose through an HTTP route."""
+    if len(new_password) < 12:
+        raise ValueError("new password must be at least 12 characters")
+    init_db()
+    with connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT id FROM staff_users WHERE username=? AND role='admin' AND is_active=1",
+            (username.strip().lower(),),
+        ).fetchone()
+        if not row:
+            raise ValueError("active administrator not found")
+        con.execute("UPDATE staff_users SET password_hash=? WHERE id=?",
+                    (hash_password(new_password), row['id']))
+        _revoke_user_sessions(con, row['id'])
+        _revoke_reset_tokens(con, row['id'])
+        _resolve_password_request(con, row['id'])

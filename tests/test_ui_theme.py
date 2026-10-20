@@ -6,7 +6,7 @@ from ui_theme import SATNO_UI_CSS
 
 class UIThemeTests(unittest.TestCase):
     def test_health_reports_ui_refresh_version(self):
-        self.assertEqual(health()["version"], "0.5.1")
+        self.assertEqual(health()["version"], "0.5.2")
 
     def test_shared_css_contains_core_staff_components(self):
         for token in (

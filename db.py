@@ -96,7 +96,28 @@ def init_db():
           is_active INTEGER NOT NULL DEFAULT 1,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
+        _ensure_column(con, "staff_users", "email", "TEXT")
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_users_email ON staff_users(email COLLATE NOCASE) WHERE email IS NOT NULL")
         con.execute("CREATE INDEX IF NOT EXISTS idx_staff_users_active ON staff_users(is_active)")
+        con.execute('''
+        CREATE TABLE IF NOT EXISTS staff_password_resets (
+          token_hash TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          email TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES staff_users(id)
+        )''')
+        con.execute("CREATE INDEX IF NOT EXISTS idx_staff_resets_user ON staff_password_resets(user_id)")
+        con.execute("CREATE TABLE IF NOT EXISTS staff_reset_requests (id INTEGER PRIMARY KEY, request_key TEXT NOT NULL, created_at TEXT NOT NULL)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_staff_reset_requests_key ON staff_reset_requests(request_key,created_at)")
+        con.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+          user_id INTEGER PRIMARY KEY REFERENCES staff_users(id),
+          requested_at TEXT NOT NULL,
+          resolved_at TEXT
+        )''')
         con.execute('''
         CREATE TABLE IF NOT EXISTS staff_sessions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,6 +143,18 @@ def init_db():
           last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
         con.execute("CREATE INDEX IF NOT EXISTS idx_source_registry_enabled ON source_registry(enabled)")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS source_username_queue (
+          username TEXT PRIMARY KEY,
+          label TEXT,
+          score INTEGER NOT NULL DEFAULT 50,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_code TEXT,
+          resolved_peer_type TEXT,
+          resolved_peer_id TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+
         con.execute('''
         CREATE TABLE IF NOT EXISTS source_discovery_cache (
           peer_type TEXT NOT NULL,
@@ -175,6 +208,7 @@ def init_db():
           last_error TEXT,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
+        _ensure_column(con, "sender_directory", "lookup_version", "INTEGER NOT NULL DEFAULT 0")
         con.execute("CREATE INDEX IF NOT EXISTS idx_sender_directory_username ON sender_directory(sender_username)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS lead_reviews (
@@ -202,6 +236,7 @@ def init_db():
         _ensure_column(con, "lead_reviews", "estimated_amount", "INTEGER")
         _ensure_column(con, "lead_reviews", "estimated_currency", "TEXT")
         _ensure_column(con, "lead_reviews", "priority", "TEXT")
+        _ensure_column(con, "lead_reviews", "business_profile", "TEXT")
         con.execute("CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(review_status)")
         con.execute('''
         CREATE TABLE IF NOT EXISTS crm_lead_outbox (

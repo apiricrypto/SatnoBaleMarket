@@ -1,7 +1,11 @@
+from ad_contacts import extract_ad_contacts
+from business_profiles import suggest_business_profile, load_business_profile
+from sender_contacts import enrich_messages
+from ui_theme import staff_document
 import os
 from fastapi import FastAPI, Query, Request, Response, HTTPException, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from pydantic import BaseModel, Field
 from typing import Optional
 from db import init_db, connect
 from classifier import analyze, dumps
@@ -9,14 +13,17 @@ from dedup import make_dedup_key
 from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
-from auth import authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user
+from auth import authenticate_and_create_session, authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user, change_own_password
+from auth import list_password_reset_requests
 from crm_connector import queue_lead
 from operations_routes import router as operations_router
 from ui_theme import SATNO_UI_CSS
+from password_reset_routes import router as password_reset_router
 import json
 
-app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.1")
+app = FastAPI(title="SATNO Bale Market Intelligence", version="0.5.2")
 app.include_router(operations_router)
+app.include_router(password_reset_router)
 
 @app.get("/assets/satno-ui.css")
 def satno_ui_css():
@@ -28,6 +35,7 @@ SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
 class LoginIn(BaseModel):
     username: str
     password: str
+
 
 def _session_user(request: Request):
     token = request.cookies.get(SESSION_COOKIE_NAME)
@@ -48,13 +56,20 @@ require_message_write = require_permission("message:write")
 require_users_manage = require_permission("users:manage")
 require_lead_send = require_permission("lead:send")
 
+
+@app.get('/api/admin/password-reset-requests')
+def admin_password_reset_requests(user=Depends(require_users_manage)):
+    return list_password_reset_requests()
+
 class StaffUserCreate(BaseModel):
+    email: Optional[str] = None
     username: str
     password: str
     role: str = "viewer"
     display_name: Optional[str] = None
 
 class StaffUserUpdate(BaseModel):
+    email: Optional[str] = None
     role: Optional[str] = None
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
@@ -97,36 +112,189 @@ def save_message(m: MessageIn):
         inserted_id = cur.lastrowid if cur.rowcount == 1 else None
         return inserted_id, a
 
+@app.get("/assets/Vazirmatn-Regular.woff2")
+def persian_font():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "Vazirmatn-Regular.woff2", media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/assets/business-profile.js")
+def business_profile_script():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "business-profile.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/assets/ad-contacts.js")
+def ad_contacts_script():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "ad-contacts.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/assets/satno-logo.jpg")
+def satno_official_logo():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "satno-logo.jpg", media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/assets/login-solar.webp")
+def login_solar_photo():
+    from pathlib import Path
+    return FileResponse(Path(__file__).with_name("assets") / "login-solar.webp", media_type="image/webp", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/assets/login-solar-art.svg")
+def login_solar_art():
+    from pathlib import Path
+    return Response(
+        Path(__file__).with_name("assets").joinpath("login-solar-art.svg").read_bytes(),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     if _session_user(request):
         return RedirectResponse("/", status_code=303)
     return HTMLResponse("""<!doctype html>
-<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ورود پرسنل | SATNO Bale Market</title>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ورود | بله مارکت ساتنو</title><link rel="icon" href="data:,">
 <style>
-body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;display:grid;place-items:center;min-height:100vh;margin:0}
-.box{width:min(380px,90vw);background:white;border:1px solid #e6eaf0;border-radius:16px;padding:22px;box-shadow:0 10px 30px #0001}
-input,button{box-sizing:border-box;width:100%;padding:12px;margin:7px 0;border:1px solid #d7dde7;border-radius:10px}
-button{cursor:pointer;background:#102d3d;color:white}.err{color:#b42318;min-height:24px}
-</style><link rel="stylesheet" href="/assets/satno-ui.css"></head><body><form class="box" id="loginForm">
-<h2>ورود پرسنل ساتنو</h2><input id="username" autocomplete="username" placeholder="نام کاربری" required>
-<input id="password" type="password" autocomplete="current-password" placeholder="رمز عبور" required>
-<button type="submit">ورود</button><div id="err" class="err"></div></form>
+@font-face{font-family:Vazirmatn;src:url("/assets/Vazirmatn-Regular.woff2") format("woff2");font-display:swap}
+:root{font-family:Vazirmatn,Tahoma,"Segoe UI",sans-serif;color:#142b4a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#f5f7fc}
+.login-shell{display:grid;grid-template-columns:1fr 1fr;min-height:100vh;direction:ltr}
+.hero{position:relative;color:#fff;direction:rtl;padding:55px clamp(28px,5vw,78px);display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(150deg,rgba(4,43,95,.88),rgba(9,63,127,.54) 55%,rgba(4,43,95,.16)),url('/assets/login-solar.webp') center/cover no-repeat;border-radius:0 26px 26px 0}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
+.brand{font-weight:900;letter-spacing:.4px;font-size:31px;line-height:1.1;direction:ltr;text-align:left}
+.brand small{display:block;font-size:14px;font-weight:600;letter-spacing:0;direction:rtl;text-align:left;margin-top:5px}
+.eyebrow{font-weight:700;line-height:1.8}
+.hero-main{margin:auto 0;text-align:center}
+.hero-main h1{font-size:clamp(34px,4vw,65px);margin:0 0 14px;font-weight:900}
+.hero-main p{font-size:clamp(16px,1.6vw,26px);margin:0}
+.features{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:52px}
+.feature{font-size:13px;line-height:2;text-align:center}
+.feature b{display:grid;place-items:center;font-size:29px;font-weight:500;width:68px;height:68px;max-width:100%;border:1px solid #ffffff55;border-radius:16px;background:#ffffff22;margin:0 auto 10px}
+.hero-foot{font-size:12px;line-height:1.8;color:#e6f1ff;margin-top:35px}
+.form-side{direction:rtl;display:flex;align-items:center;justify-content:center;padding:30px}
+.login-card{background:#fff;border:1px solid #e1e8f3;border-radius:24px;padding:clamp(24px,4vw,44px);width:min(100%,510px);box-shadow:0 18px 60px #122c5410}
+.login-wordmark{text-align:center;font-size:30px;font-weight:900;letter-spacing:2px;color:#087c91;margin-bottom:24px}.login-wordmark span{display:block;font-size:12px;letter-spacing:0;color:#617189}
+h2{text-align:center;font-size:clamp(23px,2.4vw,31px);margin:0 0 7px}
+.subtitle{text-align:center;color:#71809b;margin:0 0 30px}
+label{font-size:13px;font-weight:700;display:block;margin:14px 0 7px}
+.field{display:flex;align-items:center;border:1px solid #d5e0ef;border-radius:13px;background:#fff;overflow:hidden}
+.field:focus-within{outline:3px solid #cbdcff;border-color:#3979dc}
+input{width:100%;min-width:0;height:54px;border:0;outline:none;padding:0 16px;font:inherit;background:transparent;color:#172b4d}
+.toggle{border:0;background:none;color:#285b9a;cursor:pointer;padding:12px;font:inherit;white-space:nowrap}
+button[type=submit]{width:100%;height:57px;border:0;border-radius:13px;background:linear-gradient(90deg,#0872d1,#0b438a);color:#fff;font:inherit;font-weight:800;font-size:18px;margin-top:23px;cursor:pointer}
+button:disabled{opacity:.62;cursor:wait}
+.error{min-height:24px;color:#b42318;font-size:13px;margin:10px 0}
+.help{color:#667894;font-size:13px;margin-top:20px}
+.footer{text-align:center;border-top:1px solid #e8edf4;padding-top:20px;color:#6c7d96;font-size:12px;margin-top:28px}
+:focus-visible{outline:3px solid #91baff;outline-offset:3px}
+@media(max-width:950px){.login-shell{grid-template-columns:1fr}.hero{border-radius:0 0 24px 24px;min-height:325px;padding:24px}.hero-main{margin:30px 0 0}.hero-main h1{font-size:35px}.features{margin-top:25px;gap:7px}.feature b{width:44px;height:44px;font-size:20px}.form-side{padding:20px}}
+@media(max-width:490px){.hero{min-height:260px}.hero-top .eyebrow{display:none}.features{grid-template-columns:repeat(2,1fr)}.feature{font-size:11px}.login-card{padding:20px}.form-side{padding:12px}.brand{font-size:24px}}
+
+/* Approved reference: left brand/solar panel, right sign-in card. */
+.brand{display:flex;align-items:center;gap:12px;font-size:28px}
+.brand .brand-logo{width:72px;height:auto;display:block;object-fit:contain;border-radius:12px;background:white;flex-shrink:0}
+.hero-top{direction:ltr}.hero-top .eyebrow{direction:rtl;text-align:right;font-size:13px}
+.hero-top .eyebrow:after{content:"";display:block;width:30px;height:3px;background:#24c5ae;margin:12px 0 0 auto}
+.hero{padding:38px 40px 28px;background-image:linear-gradient(170deg,rgba(1,62,128,.91),rgba(3,76,144,.6) 43%,rgba(3,44,91,.12) 72%,rgba(2,35,78,.72)),url('/assets/login-solar.webp');background-position:center}
+.hero-main{margin:64px 0 auto}.hero-main h1{font-size:clamp(34px,3.8vw,56px);line-height:1.5;margin-bottom:10px}
+.hero-main p{font-size:clamp(16px,1.6vw,24px)}
+.features{margin-top:32px;gap:12px}.feature{font-size:12px}.feature b{border:0;background:#ffffff18;border-radius:13px;width:66px;height:66px}
+.hero-foot{text-align:left;direction:ltr;margin-top:44px;line-height:1.6;font-size:10px}
+.hero-quote{direction:rtl;text-align:right;border-left:3px solid #24c5ae;padding-left:14px;font-size:14px;width:fit-content;margin:0 0 26px;line-height:1.9}
+.form-side{padding:32px 42px}.login-card{max-width:490px;padding:32px;border-radius:20px;box-shadow:0 10px 40px #122c5409}
+.login-wordmark{margin:0 auto 14px;line-height:0}.login-wordmark img{width:88px;height:auto;max-width:100%;display:block;margin:auto;object-fit:contain}
+h2{font-size:26px}.subtitle{font-size:14px;margin-bottom:22px}
+label{margin-top:12px}.field{border-radius:12px}input{height:50px}
+button[type=submit]{height:54px;margin-top:12px}.error{margin:8px 0;min-height:20px}
+.help{font-size:12px;margin-top:16px}.footer{margin-top:20px;padding-top:18px}
+@media(min-width:951px){.hero{min-height:100vh}}
+@media(max-width:950px){.hero{padding:24px;min-height:400px}.hero-main{margin:26px 0 0}.hero-main h1{font-size:34px}.hero-foot{margin-top:28px}.hero-quote{display:none}.hero-foot br{display:none}.form-side{padding:24px}.brand .brand-logo{width:58px}}
+@media(max-width:490px){.hero{padding:20px;min-height:390px}.hero-main h1{font-size:29px}.hero-main p{font-size:15px}.features{margin-top:22px;gap:12px}.feature b{width:42px;height:42px;margin-bottom:4px}.hero-foot{margin-top:20px}.form-side{padding:16px 12px}.login-card{padding:24px 20px}.brand{font-size:23px}.login-wordmark img{width:76px}}
+
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style></head><body>
+<main class="login-shell">
+<section class="hero" aria-label="معرفی بله مارکت ساتنو">
+<div class="hero-top"><div class="brand"><img class="brand-logo" src="/assets/satno-logo.jpg" alt="لوگوی رسمی گروه ساتنو" width="1280" height="1218"><div>SATNO<small>گروه ساتنو</small></div></div><div class="eyebrow">انرژی هوشمند<br>فرصت‌های بیشتر</div></div>
+<div class="hero-main"><h1>بله مارکت ساتنو</h1><p>پایش هوشمند بازار، از گفتگو تا فرصت</p>
+<div class="features"><div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z M8 8h8 M8 12h5"/></svg></b>جمع‌آوری گفتگوهای بازار</div>
+<div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10h4v10 M10 20V4h4v16 M16 20v-7h4v7"/></svg></b>تحلیل سرنخ‌ها</div>
+<div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18l-7 8v7l-4 2v-9z"/></svg></b>جست‌وجوی پیشرفته</div>
+<div class="feature"><b aria-hidden="true"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l6-6 M14 10l6-6 M4 4l16 16 M14 4h6v6 M4 14v6h6"/></svg></b>مدیریت فرصت‌های بازار</div></div></div>
+<div class="hero-foot"><p class="hero-quote">فرصت‌ها در گفتگوها پنهان‌اند<br>ما آن‌ها را برای شما پیدا می‌کنیم.</p><span dir="ltr">SATNO BALE MARKET<br> From Conversations to Opportunities</span></div></section>
+<section class="form-side"><form class="login-card" id="loginForm">
+<div class="login-wordmark"><img src="/assets/satno-logo.jpg" alt="لوگوی رسمی گروه ساتنو" width="1280" height="1218"></div><h2>ورود به بله مارکت</h2><p class="subtitle">اطلاعات حساب کاربری خود را وارد کنید</p>
+<label for="username">نام کاربری</label><div class="field"><input id="username" name="username" autocomplete="username" required placeholder="نام کاربری" maxlength="100"></div>
+<label for="password">رمز عبور</label><div class="field"><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="رمز عبور"><button id="togglePassword" type="button" class="toggle" aria-label="نمایش رمز عبور" aria-pressed="false">نمایش</button></div>
+<p class="error" id="err" role="alert" aria-live="polite"></p>
+<button id="loginBtn" type="submit">ورود</button><p><a href="/forgot-password">رمز عبور را فراموش کرده‌اید؟</a></p>
+<p class="help">برای بازیابی رمز عبور با مدیر سامانه تماس بگیرید.</p>
+<p class="help"><a href="#forgotForm" id="forgotLink">درخواست بازیابی از مدیر</a></p>
+<div class="footer">گروه ساتنو · بله مارکت ۰.۵.۲</div>
+</form>
+<form class="login-card" id="forgotForm" hidden aria-labelledby="forgotTitle">
+<h2 id="forgotTitle">درخواست بازیابی رمز</h2>
+<p>درخواست شما در پنل مدیر ثبت می‌شود. مدیر پس از احراز هویت شما، رمز را تغییر می‌دهد.</p>
+<label for="forgotUsername">نام کاربری درخواست‌کننده</label><div class="field"><input id="forgotUsername" name="username" autocomplete="username" required maxlength="100"></div>
+<button id="forgotBtn" type="submit">ثبت درخواست برای مدیر</button>
+<p id="forgotStatus" role="status" aria-live="polite"></p>
+<p class="help">اگر مدیر هستید و امکان ورود ندارید، بازیابی اضطراری توسط مسئول سرور انجام می‌شود.</p>
+<a href="#loginForm" id="backToLogin">بازگشت به ورود</a>
+</form></section></main>
 <script>
-document.getElementById('loginForm').addEventListener('submit',async(e)=>{
- e.preventDefault();const err=document.getElementById('err');err.textContent='';
- const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
- if(r.ok){location.href='/';return;} err.textContent='نام کاربری یا رمز عبور نادرست است.';
+const forgotForm=document.getElementById('forgotForm');
+document.getElementById('forgotLink').addEventListener('click',e=>{
+ e.preventDefault();document.getElementById('loginForm').hidden=true;forgotForm.hidden=false;
+ document.getElementById('forgotUsername').value=document.getElementById('username').value;
+ document.getElementById('forgotUsername').focus();
+});
+document.getElementById('backToLogin').addEventListener('click',e=>{
+ e.preventDefault();forgotForm.hidden=true;document.getElementById('loginForm').hidden=false;document.getElementById('username').focus();
+});
+forgotForm.addEventListener('submit',async e=>{
+ e.preventDefault();const button=document.getElementById('forgotBtn'),status=document.getElementById('forgotStatus');
+ if(button.disabled)return;
+ const username=document.getElementById('forgotUsername').value.trim();
+ if(!username){status.textContent='نام کاربری را وارد کنید.';return;}
+ button.disabled=true;forgotForm.setAttribute('aria-busy','true');status.textContent='در حال ثبت درخواست…';
+ try{
+  const r=await fetch('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})});
+  status.textContent=r.ok?(await r.json()).message:'ثبت درخواست انجام نشد. دوباره تلاش کنید.';
+ }catch(error){status.textContent='ارتباط با سرور برقرار نشد.';}
+ finally{button.disabled=false;forgotForm.removeAttribute('aria-busy');}
+});
+const form=document.getElementById('loginForm'),btn=document.getElementById('loginBtn'),err=document.getElementById('err'),pwd=document.getElementById('password');
+document.getElementById('togglePassword').addEventListener('click',e=>{
+ const visible=pwd.type==='text';pwd.type=visible?'password':'text';
+ e.currentTarget.textContent=visible?'نمایش':'پنهان';e.currentTarget.setAttribute('aria-pressed',String(!visible));e.currentTarget.setAttribute('aria-label',visible?'نمایش رمز عبور':'پنهان کردن رمز عبور');
+});
+form.addEventListener('submit',async e=>{
+ e.preventDefault();if(btn.disabled)return;err.textContent='';
+ const username=document.getElementById('username').value.trim();
+ if(!username||!pwd.value){err.textContent='نام کاربری و رمز عبور الزامی است.';return;}
+ btn.disabled=true;form.setAttribute('aria-busy','true');btn.textContent='در حال ورود…';
+ try{
+ const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username,password:pwd.value})});
+ if(r.ok){location.replace('/');return}
+ err.textContent=r.status===401?'نام کاربری یا رمز عبور نادرست است.':'ورود ناموفق بود. دوباره تلاش کنید.';
+ }catch(e){err.textContent='ارتباط با سرور برقرار نشد.'}
+ finally{btn.disabled=false;form.removeAttribute('aria-busy');btn.textContent='ورود'}
 });
 </script></body></html>""")
 
 @app.post("/api/auth/login")
 def login(payload: LoginIn, response: Response):
-    user = authenticate_user(payload.username, payload.password)
-    if not user:
+    authenticated = authenticate_and_create_session(payload.username, payload.password)
+    if not authenticated:
         raise HTTPException(status_code=401, detail="invalid credentials")
-    token = create_session(user["id"])
+    user, token = authenticated
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
@@ -150,6 +318,52 @@ def logout(request: Request, response: Response):
 def auth_me(user=Depends(require_read)):
     return {"username": user["username"], "display_name": user["display_name"], "role": user["role"]}
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/auth/change-password")
+def change_password(payload: ChangePasswordIn, request: Request, response: Response):
+    user = _session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+    try:
+        change_own_password(user["id"], payload.current_password, payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return {"ok": True, "reauthentication_required": True}
+
+
+@app.get("/profile/password", response_class=HTMLResponse)
+def change_password_page(request: Request):
+    if not _session_user(request):
+        return RedirectResponse("/login", status_code=303)
+    return HTMLResponse(staff_document("""<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تغییر رمز عبور | SATNO</title><link rel="stylesheet" href="/assets/satno-ui.css">
+<style>main{max-width:490px;margin:8vh auto;padding:25px;background:white;border:1px solid #dde6f3;border-radius:20px;box-shadow:0 12px 34px #102d4a10}label{display:block;margin:14px 0 5px}input{width:100%;padding:13px}button{margin-top:19px;padding:12px 22px}#status{margin-top:14px;min-height:25px}body{padding:0}</style></head><body>
+<div class="wrap"><main class="password-card"><h2>تغییر رمز عبور</h2><p>برای امنیت حساب، رمز فعلی را وارد کنید.</p>
+<form id="changeForm"><label for="current">رمز فعلی</label><input id="current" type="password" autocomplete="current-password" required>
+<label for="newpass">رمز جدید (حداقل ۱۲ کاراکتر)</label><input id="newpass" type="password" autocomplete="new-password" minlength="12" required>
+<label for="repeat">تکرار رمز جدید</label><input id="repeat" type="password" autocomplete="new-password" minlength="12" required>
+<p class="hint">پس از تغییر رمز، همه نشست‌های قبلی بسته می‌شوند و باید دوباره وارد شوید.</p><button class="primary" type="submit" id="save">تغییر رمز عبور</button><p id="status" role="alert" aria-live="polite"></p></form><p><a href="/">بازگشت به داشبورد</a></p></main></div>
+<script>
+document.getElementById('changeForm').onsubmit=async e=>{
+ e.preventDefault();const status=document.getElementById('status'),button=document.getElementById('save');
+ const current=document.getElementById('current').value,pass=document.getElementById('newpass').value;
+ if(pass!==document.getElementById('repeat').value){status.textContent='تکرار رمز جدید یکسان نیست.';return}
+ if(pass.length<12){status.textContent='رمز جدید باید حداقل ۱۲ کاراکتر باشد.';return}
+ button.disabled=true;status.textContent='در حال تغییر رمز…';
+ try{const r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:current,new_password:pass})});
+ if(r.ok){status.textContent='رمز تغییر کرد. لطفاً دوباره وارد شوید.';setTimeout(()=>location.replace('/login'),1300)}
+ else {const d=await r.json();status.textContent=d.detail==='current password is incorrect'?'رمز فعلی صحیح نیست.':'تغییر رمز انجام نشد. اطلاعات را بررسی کنید.'}
+ }catch(e){status.textContent='ارتباط با سرور برقرار نشد.'}
+ finally{button.disabled=false}
+};
+</script></body></html>""", _session_user(request), request.url.path))
+
+
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users_page(request: Request):
     user = _session_user(request)
@@ -157,7 +371,7 @@ def admin_users_page(request: Request):
         return RedirectResponse("/login", status_code=303)
     if not role_allows(user["role"], "users:manage"):
         raise HTTPException(status_code=403, detail="forbidden")
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>مدیریت کاربران | SATNO Bale Market</title>
 <style>
@@ -166,36 +380,53 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 input,select,button{padding:9px;border:1px solid #d7dde7;border-radius:9px;margin:3px}button{cursor:pointer}
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right}
 .err{color:#b42318}a{color:#0866c6;text-decoration:none}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap"><h2>مدیریت کاربران پرسنل</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users" aria-current="page">کاربران</a></div>
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap"><h2>مدیریت کاربران پرسنل</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users" aria-current="page">کاربران</a></div>
 <form id="create" class="card"><input id="username" placeholder="نام کاربری" required>
-<input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
+<input id="email" type="email" placeholder="ایمیل بازیابی" aria-label="ایمیل بازیابی کاربر جدید"><input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
 <select id="role"><option value="viewer">viewer</option><option value="sales">sales</option><option value="admin">admin</option></select>
 <button type="submit">ایجاد کاربر</button><span id="msg"></span></form>
-<div class="card"><table><thead><tr><th>کاربر</th><th>نام</th><th>نقش</th><th>فعال</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div>
+<section class="card" aria-labelledby="resetRequestsTitle"><h3 id="resetRequestsTitle">درخواست‌های بازیابی رمز</h3>
+<p>پیش از تغییر رمز، هویت درخواست‌کننده را از راه ارتباطی مورد اعتماد تأیید کنید و رمز جدید را از همان راه تحویل دهید.</p>
+<p id="resetRequestsStatus" role="status" aria-live="polite"></p><button type="button" onclick="loadResetRequests()">تازه‌سازی درخواست‌ها</button>
+<ul id="resetRequests"></ul></section>
+<div class="card"><table><thead><tr><th>کاربر</th><th>نام</th><th>ایمیل بازیابی</th><th>نقش</th><th>فعال</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div>
 </div><script>
-function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;');}
+async function loadResetRequests(){
+ const status=document.getElementById('resetRequestsStatus'),list=document.getElementById('resetRequests');
+ try{
+  const r=await fetch('/api/admin/password-reset-requests');if(!r.ok)throw new Error();
+  const requests=await r.json();list.replaceChildren();
+  status.textContent=requests.length?'درخواست‌های در انتظار: '+requests.length:'درخواستی در انتظار نیست.';
+  for(const request of requests){
+   const item=document.createElement('li'),button=document.createElement('button');button.type='button';button.textContent='تعیین رمز جدید';
+   item.append(document.createTextNode((request.display_name||request.username)+' ('+request.username+') — '+new Date(request.requested_at).toLocaleString('fa-IR')+' '));
+   button.addEventListener('click',()=>resetPw(request.user_id));item.append(button);list.append(item);
+  }
+ }catch(error){status.textContent='دریافت درخواست‌ها انجام نشد. دوباره تلاش کنید.';}
+}
 async function load(){
  const r=await fetch('/api/admin/users'); if(!r.ok)return; const users=await r.json();
- rows.innerHTML=users.map(u=>'<tr><td>'+e(u.username)+'</td><td><input id="n'+u.id+'" value="'+e(u.display_name||'')+'"></td><td><select id="r'+u.id+'"><option '+(u.role==='viewer'?'selected':'')+'>viewer</option><option '+(u.role==='sales'?'selected':'')+'>sales</option><option '+(u.role==='admin'?'selected':'')+'>admin</option></select></td><td><input id="a'+u.id+'" type="checkbox" '+(u.is_active?'checked':'')+'></td><td><button onclick="save('+u.id+')">ذخیره</button><button onclick="resetPw('+u.id+')">رمز جدید</button></td></tr>').join('');
+ rows.innerHTML=users.map(u=>'<tr><td>'+e(u.username)+'</td><td><input id="n'+u.id+'" value="'+e(u.display_name||'')+'"></td><td><input type="email" aria-label="ایمیل بازیابی '+e(u.username)+'" id="e'+u.id+'" value="'+e(u.email||'')+'"></td><td><select id="r'+u.id+'"><option '+(u.role==='viewer'?'selected':'')+'>viewer</option><option '+(u.role==='sales'?'selected':'')+'>sales</option><option '+(u.role==='admin'?'selected':'')+'>admin</option></select></td><td><input id="a'+u.id+'" type="checkbox" '+(u.is_active?'checked':'')+'></td><td><button onclick="save('+u.id+')">ذخیره</button><button onclick="resetPw('+u.id+')">رمز جدید</button></td></tr>').join('');
 }
 async function save(id){
- const body={role:document.getElementById('r'+id).value,display_name:document.getElementById('n'+id).value,is_active:document.getElementById('a'+id).checked};
+ const body={email:document.getElementById('e'+id).value.trim()||null,role:document.getElementById('r'+id).value,display_name:document.getElementById('n'+id).value,is_active:document.getElementById('a'+id).checked};
  const r=await fetch('/api/admin/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  if(!r.ok){alert((await r.json()).detail||'خطا');return;} load();
 }
 async function resetPw(id){
  const p=prompt('رمز جدید (حداقل ۱۰ کاراکتر):'); if(!p)return;
  const r=await fetch('/api/admin/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
- if(!r.ok){alert((await r.json()).detail||'خطا');return;} alert('رمز تغییر کرد و Sessionهای قبلی لغو شدند.');
+ if(!r.ok){alert((await r.json()).detail||'خطا');return;} alert('رمز تغییر کرد و Sessionهای قبلی لغو شدند.');loadResetRequests();
 }
 document.getElementById('create').addEventListener('submit',async(ev)=>{
  ev.preventDefault(); msg.textContent='';
- const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,display_name:display_name.value,password:password.value,role:role.value})});
+ const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value.trim()||null,username:username.value,display_name:display_name.value,password:password.value,role:role.value})});
  if(!r.ok){msg.textContent=(await r.json()).detail||'خطا';return;}
  ev.target.reset(); load();
 });
-load();
-</script></body></html>""")
+load();loadResetRequests();
+</script></body></html>""", _session_user(request), request.url.path))
 
 @app.get("/api/admin/users")
 def admin_list_users(user=Depends(require_users_manage)):
@@ -204,7 +435,7 @@ def admin_list_users(user=Depends(require_users_manage)):
 @app.post("/api/admin/users", status_code=201)
 def admin_create_user(payload: StaffUserCreate, user=Depends(require_users_manage)):
     try:
-        create_user(payload.username, payload.password, payload.role, payload.display_name)
+        create_user(payload.username, payload.password, payload.role, payload.display_name, email=payload.email)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     created = next((u for u in list_users() if u["username"] == payload.username.strip().lower()), None)
@@ -219,6 +450,7 @@ def admin_update_user(user_id: int, payload: StaffUserUpdate, user=Depends(requi
             display_name=payload.display_name,
             is_active=payload.is_active,
             password=payload.password,
+            **({"email": payload.email} if "email" in payload.model_fields_set else {}),
         )
     except ValueError as exc:
         message = str(exc)
@@ -227,7 +459,7 @@ def admin_update_user(user_id: int, payload: StaffUserUpdate, user=Depends(requi
 
 @app.get("/health")
 def health():
-    return {"status":"ok","service":"satno-bale-market","version":"0.5.1"}
+    return {"status":"ok","service":"satno-bale-market","version":"0.5.2"}
 
 @app.post("/api/messages")
 def create_message(m: MessageIn, user=Depends(require_message_write)):
@@ -236,14 +468,10 @@ def create_message(m: MessageIn, user=Depends(require_message_write)):
 
 @app.get("/api/messages")
 def list_messages(q: str = "", category: str = "", sender_id: str = "", date_from: str = "", date_to: str = "", limit: int = Query(100, ge=1, le=500), user=Depends(require_read)):
-    sql = "SELECT * FROM messages WHERE 1=1"
+    sql = "SELECT m.*,r.business_profile,r.reviewed_by AS business_reviewed_by FROM messages m LEFT JOIN lead_reviews r ON r.message_id=m.id WHERE 1=1"
     args=[]
     if category:
         sql += " AND category=?"; args.append(category)
-    if sender_id:
-        sid = sender_id.strip().lstrip("@")
-        sql += " AND (sender_id LIKE ? OR LOWER(COALESCE(sender_username,'')) LIKE ? OR LOWER(COALESCE(sender_name,'')) LIKE ?)"
-        like_sid=f"%{sid}%"; args += [like_sid, like_sid.lower(), like_sid.lower()]
     normalized_from = normalize_datetime_filter(date_from)
     normalized_to = normalize_datetime_filter(date_to, end=True)
     # Historical Bale rows may contain legacy numeric/non-ISO timestamps.
@@ -251,6 +479,17 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
     sql += " ORDER BY id DESC"
     with connect() as con:
         rows=[dict(r) for r in con.execute(sql,args).fetchall()]
+    enrich_messages(rows)
+    for row in rows:
+        try:
+            row['business_profile'] = load_business_profile(row.get('business_profile'))
+        except ValueError:
+            row['business_profile'] = None
+        row['business_name'] = (row.get('business_profile') or {}).get('declared_name', '')
+    if sender_id:
+        key = sender_id.strip().lstrip('@').lower()
+        fields = ('sender_username',) if sender_id.strip().startswith('@') else ('sender_id', 'sender_username', 'sender_name')
+        rows = [row for row in rows if any(key in str(row.get(field) or '').lower() for field in fields)]
     if normalized_from or normalized_to:
         from_dt = parse_message_datetime(normalized_from) if normalized_from else None
         to_dt = parse_message_datetime(normalized_to) if normalized_to else None
@@ -280,6 +519,9 @@ def list_messages(q: str = "", category: str = "", sender_id: str = "", date_fro
             except Exception: r[k]=[]
         r["sent_at_display"] = format_tehran_jalali(r.get("sent_at") or r.get("created_at"))
         r["sender_clickable"] = bool(r.get("sender_link"))
+        r["sender_contact_role"] = "publisher"
+        r["ad_contacts"] = extract_ad_contacts(r.get("text"))
+        r["business_suggestion"] = suggest_business_profile(r.get("text"), r.get("category"))
     return rows
 
 @app.get("/api/sources")
@@ -323,7 +565,7 @@ def status_page(request: Request):
     user = _session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>وضعیت منابع | SATNO Bale Market</title>
 <style>
@@ -331,12 +573,12 @@ body{font-family:system-ui,Tahoma;background:#f6f8fb;color:#152235;margin:0}.wra
 .card{background:white;border:1px solid #e6eaf0;border-radius:14px;padding:14px;margin:10px 0}
 table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;border-bottom:1px solid #eee;text-align:right;font-size:13px}
 a{color:#0866c6;text-decoration:none}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-nav-3"></head><body class="staff-shell"><div class="wrap">
-<h2>وضعیت منابع و Sync</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status" aria-current="page">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a></div>
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell"><div class="wrap">
+<h2>وضعیت منابع و Sync</h2><div class="nav" aria-label="ناوبری اصلی"><a href="/">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status" aria-current="page">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><a href="/profile/password">تغییر رمز</a></div>
 <div id="summary" class="card">در حال بارگذاری...</div>
 <div class="card"><table><thead><tr><th>منبع</th><th>نوع</th><th>امتیاز</th><th>فعال</th><th>آخرین مشاهده</th></tr></thead><tbody id="rows"></tbody></table></div>
 </div><script>
-function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML;}
+function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;');}
 async function load(){
  const [s,r]=await Promise.all([fetch('/api/sync/status'),fetch('/api/sources')]);
  if(!s.ok||!r.ok){document.getElementById('summary').textContent='خطا در دریافت وضعیت';return;}
@@ -354,7 +596,7 @@ async function load(){
  document.getElementById('rows').innerHTML=rows.map(x=>'<tr><td>'+e(x.title||x.source_key)+'</td><td>'+e(x.peer_type||'')+'</td><td>'+e(x.score)+'</td><td>'+(x.enabled?'بله':'خیر')+'</td><td>'+e(x.last_seen_at||'')+'</td></tr>').join('');
 }
 load();
-</script></body></html>""")
+</script></body></html>""", _session_user(request), request.url.path))
 
 @app.post("/api/leads/{message_id}/send")
 def send_lead(message_id: int, user=Depends(require_lead_send)):
@@ -386,7 +628,7 @@ def dashboard(request: Request):
     user = _session_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    return HTMLResponse("""<!doctype html>
+    return HTMLResponse(staff_document("""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SATNO Bale Market Intelligence</title>
 <style>
@@ -398,9 +640,9 @@ button{cursor:pointer}.stats,.card{background:white;border:1px solid #e6eaf0;bor
 a{color:#0866c6;text-decoration:none}.error{color:#b42318}.hint{font-size:12px;color:#667085;margin-top:8px}
 .datebox{display:flex;gap:4px}.datebox input{width:100%}.calBtn{padding:8px}.picker{position:fixed;inset:0;background:#0005;display:none;align-items:center;justify-content:center;z-index:20}.picker.show{display:flex}.pickerBox{background:#fff;border-radius:14px;padding:14px;width:min(360px,92vw)}.pickerHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.days button{padding:8px 2px}.muted{opacity:.35}
 @media(max-width:900px){.bar{grid-template-columns:1fr 1fr}.bar #q{grid-column:1/-1}}
-</style><link rel="stylesheet" href="/assets/satno-ui.css?v=issue1-dashboard-2"></head><body class="staff-shell"><div class="wrap">
+</style><link rel="stylesheet" href="/assets/satno-ui.css?v=052-final"></head><body class="staff-shell market-board"><div class="wrap">
 <h1>SATNO | هوش بازار بله</h1><div class="sub">نسخه 0.5 Staff — ورود پرسنل، RBAC و جستجوی تاریخچه بازار</div>
-<div class="nav" aria-label="ناوبری اصلی"><a href="/" aria-current="page">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><button id="logoutBtn" type="button">خروج</button></div>
+<div class="nav" aria-label="ناوبری اصلی"><a href="/" aria-current="page">جست‌وجوی بازار</a><a href="/review">بررسی سرنخ‌ها</a><a href="/sources/manage">مدیریت منابع</a><a href="/status">وضعیت همگام‌سازی</a><a href="/crm/outbox">صف CRM</a><a href="/admin/users">کاربران</a><a href="/profile/password">تغییر رمز</a><button id="logoutBtn" type="button">خروج</button></div>
 <div id="stats" class="metric-grid"><div class="metric"><div class="label">در حال بارگذاری</div><div class="value">…</div></div></div>
 <div class="searchpanel"><div class="bar">
 <input id="q" placeholder="جستجو: نام دقیق محصول، مدل، برند، متن پیام...">
@@ -427,14 +669,6 @@ async function sendLead(id,btn){
  }catch(e){btn.textContent='خطا';}
  setTimeout(()=>{btn.disabled=false;btn.textContent=old;},2500);
 }
-function senderHtml(r){
- const label=escapeHtml(r.sender_username||r.sender_name||r.sender_id||'-');
- if(r.sender_link && /^https:\/\/ble\.ir\/[A-Za-z0-9_.-]+\/?$/.test(r.sender_link)){
-   return '<a href="'+escapeHtml(r.sender_link)+'" target="_blank" rel="noopener noreferrer">بازکردن در بله: '+label+'</a>';
- }
- const id=r.sender_id?' • ID: '+escapeHtml(r.sender_id):'';
- return label+id+' <span class="tag">لینک عمومی بله موجود نیست</span>';
-}
 let dateTouched={from:false,to:false};
 function params(){
  const p=new URLSearchParams();
@@ -460,7 +694,7 @@ async function load(){
    '<div class="metric"><div class="label">منابع فعال</div><div class="value">'+s.active_sources+'</div><div class="foot">کانال/گروه تحت پایش</div></div>'+
    '<div class="metric"><div class="label">History خوانده‌شده</div><div class="value">'+s.history_scanned+'</div><div class="foot">رکورد بررسی‌شده</div></div>'+
    '<div class="metric"><div class="label">آخرین Sync</div><div class="value '+((ls&&ls.status==='ok')?'kpi-good':'kpi-warn')+'">'+(ls?(ls.status||'—'):'—')+'</div><div class="foot">'+(ls?(ls.finished_at||ls.started_at||''):'هنوز ثبت نشده')+'</div></div>';
-   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div><div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی سرنخ</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
+   list.innerHTML=rows.length?rows.map(r=>'<div class="card result-card cat-'+escapeHtml(r.category||'other')+'"><div class="meta">'+escapeHtml(r.chat_name||'-')+' • '+senderHtml(r)+' • '+escapeHtml(r.sent_at_display||r.sent_at||'')+'</div><div class="message">'+escapeHtml(r.text)+'</div>'+businessSummaryHtml(r.business_profile||r.business_suggestion,!!r.business_profile)+adContactsHtml(r)+'<div>'+'<span class="tag">'+escapeHtml(labels[r.category]||r.category)+'</span> '+(r.brands||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.models||[]).map(x=>'<span class="tag">مدل: '+escapeHtml(x)+'</span>').join('')+' '+(r.power_values||[]).map(x=>'<span class="tag">توان: '+escapeHtml(x)+'</span>').join('')+' '+(r.price_values||[]).map(x=>'<span class="tag">قیمت: '+escapeHtml(x)+'</span>').join('')+' '+(r.locations||[]).map(x=>'<span class="tag">'+escapeHtml(x)+'</span>').join('')+' '+(r.currency_values||[]).map(x=>'<span class="tag">واحد: '+escapeHtml(x)+'</span>').join('')+'</div><div class="actions"><a class="leadBtn" href="/review?message_id='+r.id+'">بررسی و آماده‌سازی CRM</a></div></div>').join(''):'<div class="empty-state"><strong>نتیجه‌ای پیدا نشد</strong><div class="muted" style="margin-top:6px">عبارت جستجو یا فیلترها را تغییر دهید.</div></div>';
  }catch(e){list.innerHTML='<div class="stats error">خطا در جستجو: '+escapeHtml(e.message)+'</div>';}
 }
 function clearFilters(){['q','sender','from','to'].forEach(id=>document.getElementById(id).value='');dateTouched={from:false,to:false};document.getElementById('cat').value='';load();}
@@ -495,4 +729,4 @@ document.getElementById('clearBtn').addEventListener('click',clearFilters);
  el.addEventListener('keydown',e=>{if(e.key==='Enter')load();});
 });
 load();
-</script></body></html>""")
+</script></body></html>""", _session_user(request), request.url.path))

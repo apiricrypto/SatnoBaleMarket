@@ -8,6 +8,8 @@ from urllib.error import URLError, HTTPError
 from dotenv import load_dotenv
 
 from db import connect, init_db
+from ad_contacts import extract_ad_contacts, extract_reviewed_contacts
+from business_profiles import build_business_context
 
 load_dotenv(".env.local")
 
@@ -156,7 +158,15 @@ def build_lead_payload(row, review=None):
     reviewed_price = review.get("price") or _first(price_values)
     reviewed_currency = review.get("currency") or _first(currency_values)
     reviewed_location = review.get("location") or _first(locations)
-    reviewed_contact = review.get("contact") or _first(phones)
+    ad_contacts = extract_ad_contacts(row.get("text"))
+    reviewed_contact = review.get("contact") or None
+    reviewed_contacts = extract_reviewed_contacts(reviewed_contact)
+    # A reviewer override is authoritative for the primary phone; never treat a URL as one.
+    primary_contacts = reviewed_contacts if reviewed_contact else ad_contacts
+    contact_phone = next((c["value"] for c in primary_contacts if c["kind"] == "phone"), None)
+    contact_email = next((c["value"] for c in primary_contacts if c["kind"] == "email"), None)
+    if not contact_email:
+        contact_email = next((c["value"] for c in ad_contacts if c["kind"] == "email"), None)
 
     raw_payload = {
         "provider": "bale",
@@ -167,6 +177,7 @@ def build_lead_payload(row, review=None):
             "sender_name": row.get("sender_name"),
             "sender_username": row.get("sender_username"),
             "sender_link": row.get("sender_link"),
+            "sender_contact_role": "publisher",
             "text": row.get("text"),
             "sent_at": row.get("sent_at"),
         },
@@ -181,6 +192,7 @@ def build_lead_payload(row, review=None):
             "currency_values": currency_values,
             "quantities": _json_list(row.get("quantities")),
             "phones": phones,
+            "ad_contacts": ad_contacts,
             "locations": locations,
         },
         "review": {
@@ -195,6 +207,7 @@ def build_lead_payload(row, review=None):
             "currency": reviewed_currency,
             "location": reviewed_location,
             "contact": reviewed_contact,
+            "ad_contacts": reviewed_contacts,
             "notes": review.get("notes"),
             "reviewed_by": review.get("reviewed_by"),
             "reviewed_at": review.get("reviewed_at"),
@@ -207,11 +220,22 @@ def build_lead_payload(row, review=None):
         "captured_at": _iso_timestamp(row.get("sent_at") or row.get("created_at")),
         "raw_payload": raw_payload,
         "description": (row.get("text") or "")[:10000] or None,
-        "contact_name": row.get("sender_name") or None,
-        "contact_phone": reviewed_contact or None,
+        "contact_phone": contact_phone,
+        "contact_email": contact_email,
         "city": reviewed_location or None,
         "priority": review.get("priority") or "normal",
     }
+
+    business = build_business_context(row, review)
+    if business is not None:
+        raw_payload['business_context'] = business
+        party = business['party']
+        if party['entity_type'] == 'company' and party['declared_name']:
+            payload['organization_name'] = party['declared_name']
+            if party['contact_person']:
+                payload['contact_name'] = party['contact_person']
+        elif party['entity_type'] == 'person' and party['declared_name']:
+            payload['contact_name'] = party['declared_name']
 
     amount = review.get("estimated_amount")
     currency = (review.get("estimated_currency") or "").strip().upper()
@@ -248,7 +272,7 @@ def queue_lead(message_id, requested_by, require_selected=True):
             (message_id,),
         ).fetchone()
 
-        if require_selected and not existing:
+        if require_selected:
             if not review or review.get("review_status") != "selected":
                 raise ValueError("lead must be reviewed and selected before queueing")
 
@@ -377,6 +401,20 @@ def send_outbox_item(outbox_id):
     outbox = dict(row)
     if outbox["status"] == "sent":
         return {"status": "sent", "outbox_id": outbox_id, "already_sent": True}
+
+    review = _review_for_message(outbox["message_id"])
+    if not review or review.get("review_status") != "selected":
+        return {"status": "blocked", "outbox_id": outbox_id,
+                "message": "lead must remain reviewed and selected before sending"}
+
+    try:
+        queued_payload = json.loads(outbox['payload'])
+        business = (queued_payload.get('raw_payload') or {}).get('business_context')
+    except (ValueError, TypeError, AttributeError):
+        business = None  # Existing invalid-payload handling below remains authoritative.
+    if business is not None or review.get("business_profile"):
+        return {'status': 'blocked', 'reason': 'business_contract_pending', 'outbox_id': outbox_id,
+                'message': 'مسیر ثبت تأمین‌کننده/خریدار در انتظار هماهنگی قرارداد CRM است.'}
 
     url = (os.getenv("SATNO_CRM_LEAD_URL") or "").strip()
     token = (os.getenv("SATNO_BALE_MARKET_INGEST_TOKEN") or "").strip()
