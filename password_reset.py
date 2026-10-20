@@ -5,7 +5,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from auth import hash_password, verify_password, _revoke_user_sessions, _revoke_reset_tokens
+from auth import hash_password, verify_password, _revoke_user_sessions, _revoke_reset_tokens, _resolve_password_request
 from db import connect, init_db
 from staff_email import normalize_email
 from recovery_mailer import recovery_settings, send_reset_email
@@ -92,4 +92,5 @@ def reset_password(token, new_password):
         con.execute('UPDATE staff_users SET password_hash=? WHERE id=?', (encoded, row['id']))
         _revoke_user_sessions(con, row['id'])
         _revoke_reset_tokens(con, row['id'])
+        _resolve_password_request(con, row['id'])
     return True

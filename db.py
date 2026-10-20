@@ -113,6 +113,12 @@ def init_db():
         con.execute("CREATE TABLE IF NOT EXISTS staff_reset_requests (id INTEGER PRIMARY KEY, request_key TEXT NOT NULL, created_at TEXT NOT NULL)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_staff_reset_requests_key ON staff_reset_requests(request_key,created_at)")
         con.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+          user_id INTEGER PRIMARY KEY REFERENCES staff_users(id),
+          requested_at TEXT NOT NULL,
+          resolved_at TEXT
+        )''')
+        con.execute('''
         CREATE TABLE IF NOT EXISTS staff_sessions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER NOT NULL,

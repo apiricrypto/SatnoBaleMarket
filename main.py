@@ -5,7 +5,7 @@ from ui_theme import staff_document
 import os
 from fastapi import FastAPI, Query, Request, Response, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from db import init_db, connect
 from classifier import analyze, dumps
@@ -14,6 +14,7 @@ from display_utils import format_tehran_jalali, normalize_datetime_filter
 from search_utils import normalize_search_text, query_terms, message_search_score
 from time_utils import parse_message_datetime
 from auth import authenticate_and_create_session, authenticate_user, create_session, resolve_session, revoke_session, role_allows, create_user, list_users, update_user, change_own_password
+from auth import list_password_reset_requests
 from crm_connector import queue_lead
 from operations_routes import router as operations_router
 from ui_theme import SATNO_UI_CSS
@@ -35,6 +36,7 @@ class LoginIn(BaseModel):
     username: str
     password: str
 
+
 def _session_user(request: Request):
     token = request.cookies.get(SESSION_COOKIE_NAME)
     return resolve_session(token) if token else None
@@ -53,6 +55,11 @@ require_read = require_permission("read")
 require_message_write = require_permission("message:write")
 require_users_manage = require_permission("users:manage")
 require_lead_send = require_permission("lead:send")
+
+
+@app.get('/api/admin/password-reset-requests')
+def admin_password_reset_requests(user=Depends(require_users_manage)):
+    return list_password_reset_requests()
 
 class StaffUserCreate(BaseModel):
     email: Optional[str] = None
@@ -229,9 +236,40 @@ button[type=submit]{height:54px;margin-top:12px}.error{margin:8px 0;min-height:2
 <p class="error" id="err" role="alert" aria-live="polite"></p>
 <button id="loginBtn" type="submit">ورود</button><p><a href="/forgot-password">رمز عبور را فراموش کرده‌اید؟</a></p>
 <p class="help">برای بازیابی رمز عبور با مدیر سامانه تماس بگیرید.</p>
+<p class="help"><a href="#forgotForm" id="forgotLink">درخواست بازیابی از مدیر</a></p>
 <div class="footer">گروه ساتنو · بله مارکت ۰.۵.۲</div>
+</form>
+<form class="login-card" id="forgotForm" hidden aria-labelledby="forgotTitle">
+<h2 id="forgotTitle">درخواست بازیابی رمز</h2>
+<p>درخواست شما در پنل مدیر ثبت می‌شود. مدیر پس از احراز هویت شما، رمز را تغییر می‌دهد.</p>
+<label for="forgotUsername">نام کاربری درخواست‌کننده</label><div class="field"><input id="forgotUsername" name="username" autocomplete="username" required maxlength="100"></div>
+<button id="forgotBtn" type="submit">ثبت درخواست برای مدیر</button>
+<p id="forgotStatus" role="status" aria-live="polite"></p>
+<p class="help">اگر مدیر هستید و امکان ورود ندارید، بازیابی اضطراری توسط مسئول سرور انجام می‌شود.</p>
+<a href="#loginForm" id="backToLogin">بازگشت به ورود</a>
 </form></section></main>
 <script>
+const forgotForm=document.getElementById('forgotForm');
+document.getElementById('forgotLink').addEventListener('click',e=>{
+ e.preventDefault();document.getElementById('loginForm').hidden=true;forgotForm.hidden=false;
+ document.getElementById('forgotUsername').value=document.getElementById('username').value;
+ document.getElementById('forgotUsername').focus();
+});
+document.getElementById('backToLogin').addEventListener('click',e=>{
+ e.preventDefault();forgotForm.hidden=true;document.getElementById('loginForm').hidden=false;document.getElementById('username').focus();
+});
+forgotForm.addEventListener('submit',async e=>{
+ e.preventDefault();const button=document.getElementById('forgotBtn'),status=document.getElementById('forgotStatus');
+ if(button.disabled)return;
+ const username=document.getElementById('forgotUsername').value.trim();
+ if(!username){status.textContent='نام کاربری را وارد کنید.';return;}
+ button.disabled=true;forgotForm.setAttribute('aria-busy','true');status.textContent='در حال ثبت درخواست…';
+ try{
+  const r=await fetch('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})});
+  status.textContent=r.ok?(await r.json()).message:'ثبت درخواست انجام نشد. دوباره تلاش کنید.';
+ }catch(error){status.textContent='ارتباط با سرور برقرار نشد.';}
+ finally{button.disabled=false;forgotForm.removeAttribute('aria-busy');}
+});
 const form=document.getElementById('loginForm'),btn=document.getElementById('loginBtn'),err=document.getElementById('err'),pwd=document.getElementById('password');
 document.getElementById('togglePassword').addEventListener('click',e=>{
  const visible=pwd.type==='text';pwd.type=visible?'password':'text';
@@ -347,9 +385,26 @@ table{width:100%;border-collapse:collapse;background:white}th,td{padding:8px;bor
 <input id="email" type="email" placeholder="ایمیل بازیابی" aria-label="ایمیل بازیابی کاربر جدید"><input id="display_name" placeholder="نام نمایشی"><input id="password" type="password" placeholder="رمز عبور (حداقل ۱۰ کاراکتر)" required>
 <select id="role"><option value="viewer">viewer</option><option value="sales">sales</option><option value="admin">admin</option></select>
 <button type="submit">ایجاد کاربر</button><span id="msg"></span></form>
+<section class="card" aria-labelledby="resetRequestsTitle"><h3 id="resetRequestsTitle">درخواست‌های بازیابی رمز</h3>
+<p>پیش از تغییر رمز، هویت درخواست‌کننده را از راه ارتباطی مورد اعتماد تأیید کنید و رمز جدید را از همان راه تحویل دهید.</p>
+<p id="resetRequestsStatus" role="status" aria-live="polite"></p><button type="button" onclick="loadResetRequests()">تازه‌سازی درخواست‌ها</button>
+<ul id="resetRequests"></ul></section>
 <div class="card"><table><thead><tr><th>کاربر</th><th>نام</th><th>ایمیل بازیابی</th><th>نقش</th><th>فعال</th><th>عملیات</th></tr></thead><tbody id="rows"></tbody></table></div>
 </div><script>
 function e(v){const d=document.createElement('div');d.textContent=v==null?'':String(v);return d.innerHTML.replace(/\x22/g,'&quot;').replace(/'/g,'&#39;');}
+async function loadResetRequests(){
+ const status=document.getElementById('resetRequestsStatus'),list=document.getElementById('resetRequests');
+ try{
+  const r=await fetch('/api/admin/password-reset-requests');if(!r.ok)throw new Error();
+  const requests=await r.json();list.replaceChildren();
+  status.textContent=requests.length?'درخواست‌های در انتظار: '+requests.length:'درخواستی در انتظار نیست.';
+  for(const request of requests){
+   const item=document.createElement('li'),button=document.createElement('button');button.type='button';button.textContent='تعیین رمز جدید';
+   item.append(document.createTextNode((request.display_name||request.username)+' ('+request.username+') — '+new Date(request.requested_at).toLocaleString('fa-IR')+' '));
+   button.addEventListener('click',()=>resetPw(request.user_id));item.append(button);list.append(item);
+  }
+ }catch(error){status.textContent='دریافت درخواست‌ها انجام نشد. دوباره تلاش کنید.';}
+}
 async function load(){
  const r=await fetch('/api/admin/users'); if(!r.ok)return; const users=await r.json();
  rows.innerHTML=users.map(u=>'<tr><td>'+e(u.username)+'</td><td><input id="n'+u.id+'" value="'+e(u.display_name||'')+'"></td><td><input type="email" aria-label="ایمیل بازیابی '+e(u.username)+'" id="e'+u.id+'" value="'+e(u.email||'')+'"></td><td><select id="r'+u.id+'"><option '+(u.role==='viewer'?'selected':'')+'>viewer</option><option '+(u.role==='sales'?'selected':'')+'>sales</option><option '+(u.role==='admin'?'selected':'')+'>admin</option></select></td><td><input id="a'+u.id+'" type="checkbox" '+(u.is_active?'checked':'')+'></td><td><button onclick="save('+u.id+')">ذخیره</button><button onclick="resetPw('+u.id+')">رمز جدید</button></td></tr>').join('');
@@ -362,7 +417,7 @@ async function save(id){
 async function resetPw(id){
  const p=prompt('رمز جدید (حداقل ۱۰ کاراکتر):'); if(!p)return;
  const r=await fetch('/api/admin/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});
- if(!r.ok){alert((await r.json()).detail||'خطا');return;} alert('رمز تغییر کرد و Sessionهای قبلی لغو شدند.');
+ if(!r.ok){alert((await r.json()).detail||'خطا');return;} alert('رمز تغییر کرد و Sessionهای قبلی لغو شدند.');loadResetRequests();
 }
 document.getElementById('create').addEventListener('submit',async(ev)=>{
  ev.preventDefault(); msg.textContent='';
@@ -370,7 +425,7 @@ document.getElementById('create').addEventListener('submit',async(ev)=>{
  if(!r.ok){msg.textContent=(await r.json()).detail||'خطا';return;}
  ev.target.reset(); load();
 });
-load();
+load();loadResetRequests();
 </script></body></html>""", _session_user(request), request.url.path))
 
 @app.get("/api/admin/users")

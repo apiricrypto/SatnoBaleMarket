@@ -11,7 +11,8 @@ PRIVATE = {'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'}
 
 
 class ForgotIn(BaseModel):
-    email: str = Field(max_length=254)
+    email: str | None = Field(default=None, max_length=254)
+    username: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class ResetIn(BaseModel):
@@ -33,6 +34,13 @@ def recovery_status():
 
 @router.post('/api/auth/forgot-password')
 def forgot_password(payload: ForgotIn, request: Request, background: BackgroundTasks, response: Response):
+    if (payload.email is None) == (payload.username is None):
+        raise HTTPException(422, 'فقط ایمیل یا نام کاربری را وارد کنید.', headers=PRIVATE)
+    if payload.username is not None:
+        from auth import request_password_reset
+        from fastapi.responses import JSONResponse
+        request_password_reset(payload.username)
+        return JSONResponse({'message': 'اگر حساب فعال باشد، درخواست بازیابی برای مدیر ثبت می‌شود. برای پیگیری با مدیر تماس بگیرید.'}, status_code=202, headers=PRIVATE)
     try:
         recovery_settings()
     except RecoveryUnavailable:

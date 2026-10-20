@@ -62,6 +62,13 @@ def main():
                     page.on('pageerror', lambda e: errors.append(str(e)))
                     page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
                     page.goto(base+'/login')
+                    page.get_by_role('link', name='درخواست بازیابی از مدیر', exact=True).click()
+                    expect(page.locator('#forgotForm')).to_be_visible()
+                    page.get_by_label('نام کاربری درخواست‌کننده', exact=True).fill('recover-viewer')
+                    page.get_by_role('button', name='ثبت درخواست برای مدیر', exact=True).click()
+                    expect(page.locator('#forgotStatus')).to_contain_text('اگر حساب فعال')
+                    page.locator('#backToLogin').click()
+                    expect(page.locator('#loginForm')).to_be_visible()
                     page.get_by_role('link', name='رمز عبور را فراموش کرده‌اید؟', exact=True).click()
                     for width in (375,768,1440):
                         page.set_viewport_size({'width':width,'height':900})

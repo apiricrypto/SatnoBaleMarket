@@ -37,6 +37,32 @@ class PasswordRecoveryTests(unittest.TestCase):
             deliver_reset_email(email)
         return parse_qs(urlsplit(links[0]).fragment)['token'][0] if links else None
 
+    def test_email_reset_resolves_pending_manual_request(self):
+        from auth import request_password_reset, list_password_reset_requests
+        from password_reset import reset_password
+        request_password_reset('admin')
+        self.assertEqual(len(list_password_reset_requests()), 1)
+        reset_password(self.issue(), 'ReplacementPassword123!')
+        self.assertEqual(list_password_reset_requests(), [])
+
+    def test_emergency_reset_revokes_email_link_and_manual_request(self):
+        from auth import recover_admin_password, request_password_reset, list_password_reset_requests
+        from password_reset import reset_password
+        token = self.issue()
+        request_password_reset('admin')
+        recover_admin_password('admin', 'EmergencyPassword123!')
+        self.assertEqual(list_password_reset_requests(), [])
+        with self.assertRaises(ValueError):
+            reset_password(token, 'ReplacementPassword123!')
+        self.assertIsNotNone(authenticate_user('admin', 'EmergencyPassword123!'))
+
+    def test_recovery_request_requires_exactly_one_identifier(self):
+        from fastapi.testclient import TestClient
+        from main import app
+        with TestClient(app) as client:
+            for payload in ({}, {'email': 'admin@example.com', 'username': 'admin'}):
+                self.assertEqual(client.post('/api/auth/forgot-password', json=payload).status_code, 422)
+
     def test_reset_works_for_every_role_and_revokes_all_sessions(self):
         from password_reset import reset_password
         for role in ('admin', 'sales', 'viewer'):
